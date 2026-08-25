@@ -1,7 +1,7 @@
 # ============================================================
 # PUSI OPTI
-# Windows Gaming Optimization Utility
-# VERSION 0.7.1
+# Pusi Optimization Utility
+# VERSION 1.0.0
 # ============================================================
 
 Add-Type -AssemblyName PresentationFramework
@@ -13,7 +13,7 @@ Add-Type -AssemblyName WindowsBase
 # CONFIGURACION
 # ============================================================
 
-$script:PusiVersion = "0.7.1"
+$script:PusiVersion = "0.7.2"
 
 $script:PowURL =
     "https://raw.githubusercontent.com/pusichepas/PUSI-OPTI/main/Bitsum-Highest-Performance.pow"
@@ -1649,7 +1649,7 @@ $Display =
 
 
 <TextBlock
- Text="v0.7.1"
+ Text="v0.7.2"
 
  Foreground="#525C69"
 
@@ -1703,27 +1703,11 @@ $Display =
 
 
 <Button
- x:Name="ClientMode"
-
- Content="MODO CLIENTE"
-
- Width="140"/>
-
-
-<Button
- x:Name="TechnicalMode"
-
- Content="MODO TÉCNICO"
-
- Width="145"/>
-
-
-<Button
  x:Name="RefreshAll"
 
- Content="ACTUALIZAR"
+ Content="ACTUALIZAR ESTADO"
 
- Width="125"/>
+ Width="165"/>
 
 
 </StackPanel>
@@ -3120,6 +3104,63 @@ $Display =
  x:Name="OptimizeStorage"
  Content="RETRIM SSD / NVME"
  Width="200"/>
+
+
+</WrapPanel>
+
+
+<Separator Margin="0,18"/>
+
+
+<TextBlock
+ Text="ACCESOS RÁPIDOS"
+
+ Foreground="#4FD6FF"
+
+ FontSize="17"
+
+ FontWeight="Bold"/>
+
+
+<TextBlock
+ Text="Atajos útiles para revisar el equipo sin salir de PUSI OPTI."
+
+ Foreground="#8A95A5"
+
+ Margin="0,5,0,8"/>
+
+
+<WrapPanel Margin="0,8">
+
+
+<Button
+ x:Name="OpenStartupApps"
+ Content="APPS DE INICIO"
+ Width="180"/>
+
+
+<Button
+ x:Name="OpenGraphicsSettings"
+ Content="CONFIG. GRÁFICOS"
+ Width="190"/>
+
+
+<Button
+ x:Name="OpenAdvancedDisplay"
+ Content="PANTALLA AVANZADA"
+ Width="205"/>
+
+
+<Button
+ x:Name="OpenPowerOptions"
+ Content="OPCIONES DE ENERGÍA"
+ Width="210"/>
+
+
+<Button
+ x:Name="CreateRestorePointNow"
+ Content="CREAR RESTAURACIÓN"
+ Width="205"/>
 
 
 </WrapPanel>
@@ -4531,52 +4572,6 @@ PUSI OPTI
 
 
 # ============================================================
-# MODOS
-# ============================================================
-
-(C "ClientMode").Add_Click({
-
-    (C "TabOptimization").Visibility =
-        "Collapsed"
-
-
-    (C "TabMaintenance").Visibility =
-        "Collapsed"
-
-
-    (C "TabUpdates").Visibility =
-        "Collapsed"
-
-
-    (C "MainTabs").SelectedItem =
-        C "TabSummary"
-
-
-    $StatusBar.Text =
-        "Modo Cliente activado."
-})
-
-
-(C "TechnicalMode").Add_Click({
-
-    (C "TabOptimization").Visibility =
-        "Visible"
-
-
-    (C "TabMaintenance").Visibility =
-        "Visible"
-
-
-    (C "TabUpdates").Visibility =
-        "Visible"
-
-
-    $StatusBar.Text =
-        "Modo Técnico activado."
-})
-
-
-# ============================================================
 # SELECCION
 # ============================================================
 
@@ -5870,6 +5865,133 @@ function Backup-PusiSelected {
 
     $StatusBar.Text =
         "ReTrim terminado."
+})
+
+
+# ============================================================
+# ACCESOS RAPIDOS
+# ============================================================
+
+(C "OpenStartupApps").Add_Click({
+
+    try {
+
+        Start-Process "ms-settings:startupapps"
+
+        $StatusBar.Text =
+            "Abriendo aplicaciones de inicio."
+
+    }
+    catch {
+
+        [System.Windows.MessageBox]::Show(
+            "No se pudo abrir Aplicaciones de inicio.",
+            "PUSI OPTI",
+            "OK",
+            "Error"
+        )
+    }
+})
+
+
+(C "OpenGraphicsSettings").Add_Click({
+
+    try {
+
+        Start-Process "ms-settings:display-advancedgraphics"
+
+        $StatusBar.Text =
+            "Abriendo configuración de gráficos."
+
+    }
+    catch {
+
+        try {
+
+            Start-Process "ms-settings:display"
+
+        }
+        catch {}
+    }
+})
+
+
+(C "OpenAdvancedDisplay").Add_Click({
+
+    try {
+
+        Start-Process "ms-settings:display-advanced"
+
+        $StatusBar.Text =
+            "Abriendo configuración de pantalla avanzada."
+
+    }
+    catch {
+
+        try {
+
+            Start-Process "ms-settings:display"
+
+        }
+        catch {}
+    }
+})
+
+
+(C "OpenPowerOptions").Add_Click({
+
+    try {
+
+        Start-Process "control.exe" `
+            -ArgumentList "/name Microsoft.PowerOptions"
+
+        $StatusBar.Text =
+            "Abriendo Opciones de energía."
+
+    }
+    catch {
+
+        [System.Windows.MessageBox]::Show(
+            "No se pudieron abrir las Opciones de energía.",
+            "PUSI OPTI",
+            "OK",
+            "Error"
+        )
+    }
+})
+
+
+(C "CreateRestorePointNow").Add_Click({
+
+    $StatusBar.Text =
+        "Creando punto de restauración..."
+
+
+    if (New-PusiRestorePoint) {
+
+        [System.Windows.MessageBox]::Show(
+            "Punto de restauración creado correctamente.",
+            "PUSI OPTI",
+            "OK",
+            "Information"
+        )
+
+        $StatusBar.Text =
+            "Punto de restauración creado."
+
+    }
+    else {
+
+        [System.Windows.MessageBox]::Show(
+            "Windows no permitió crear el punto de restauración.`n`nPuede existir otro creado recientemente o Protección del sistema puede estar desactivada.",
+            "PUSI OPTI",
+            "OK",
+            "Warning"
+        )
+
+        $StatusBar.Text =
+            "No se pudo crear el punto de restauración."
+    }
 })
 
 
