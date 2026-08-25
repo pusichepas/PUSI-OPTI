@@ -1,7 +1,7 @@
 # ============================================================
 # PUSI OPTI
 # Windows Gaming Optimization Utility
-# VERSION 0.7
+# VERSION 0.7.1
 # ============================================================
 
 Add-Type -AssemblyName PresentationFramework
@@ -13,7 +13,7 @@ Add-Type -AssemblyName WindowsBase
 # CONFIGURACION
 # ============================================================
 
-$script:PusiVersion = "0.7"
+$script:PusiVersion = "0.7.1"
 
 $script:PowURL =
     "https://raw.githubusercontent.com/pusichepas/PUSI-OPTI/main/Bitsum-Highest-Performance.pow"
@@ -1649,7 +1649,7 @@ $Display =
 
 
 <TextBlock
- Text="v0.7"
+ Text="v0.7.1"
 
  Foreground="#525C69"
 
@@ -4261,10 +4261,10 @@ function Update-PusiSummary {
 
     # RESTART
 
-    if (
-    (Test-PusiPendingRestart) -or
-    $script:NeedsRestart
-    ) {
+    $PendingRestart =
+        Test-PusiPendingRestart
+
+    if ($PendingRestart -or $script:NeedsRestart) {
 
         (C "RestartIndicator").Text =
             "REINICIO: PENDIENTE"
