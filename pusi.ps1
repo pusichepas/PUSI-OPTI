@@ -1,7 +1,7 @@
 # ============================================================
 # PUSI OPTI
 # Windows Optimization Utility
-# Version 0.3
+# Version 0.4
 # ============================================================
 
 Add-Type -AssemblyName PresentationFramework
@@ -58,7 +58,6 @@ function Set-RegDWORD {
             -Path $Path `
             -Force |
             Out-Null
-
     }
 
     New-ItemProperty `
@@ -85,7 +84,6 @@ function Set-RegString {
             -Path $Path `
             -Force |
             Out-Null
-
     }
 
     New-ItemProperty `
@@ -124,12 +122,10 @@ function New-PusiRestorePoint {
             -Drive "C:\" `
             -ErrorAction SilentlyContinue
 
-
         Checkpoint-Computer `
             -Description "PUSI OPTI - PRE OPTIMIZACION" `
             -RestorePointType "MODIFY_SETTINGS" `
             -ErrorAction Stop
-
 
         return $true
 
@@ -137,9 +133,7 @@ function New-PusiRestorePoint {
     catch {
 
         return $false
-
     }
-
 }
 
 
@@ -156,21 +150,14 @@ function Enable-PusiPowerPlan {
     $StatusBar.Text =
         "Preparando Plan energia Pusi..."
 
-
     try {
 
         $PlanName =
             "Plan energia Pusi"
 
-
-        # ----------------------------------------------------
-        # COMPROBAR SI YA EXISTE
-        # ----------------------------------------------------
-
         $Existing =
             powercfg /list |
             Select-String -SimpleMatch $PlanName
-
 
         if ($Existing) {
 
@@ -180,37 +167,26 @@ function Enable-PusiPowerPlan {
                     '[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}'
                 ).Value
 
-
             if ($ExistingGuid) {
 
                 powercfg /setactive $ExistingGuid |
                     Out-Null
 
-
                 $StatusBar.Text =
                     "Plan energia Pusi activado."
 
-
                 return $true
-
             }
-
         }
 
 
-        # ----------------------------------------------------
-        # DESCARGAR POW
-        # ----------------------------------------------------
-
         $PowURL =
             "https://raw.githubusercontent.com/pusichepas/PUSI-OPTI/main/Bitsum-Highest-Performance.pow"
-
 
         $TempPow =
             Join-Path `
                 $env:TEMP `
                 "PUSI-OPTI-POWER.pow"
-
 
         Invoke-WebRequest `
             -Uri $PowURL `
@@ -219,25 +195,14 @@ function Enable-PusiPowerPlan {
             -ErrorAction Stop
 
 
-        # ----------------------------------------------------
-        # GUID CONTROLADO DE PUSI
-        # ----------------------------------------------------
-
         $PusiGuid =
             "7f34a6b5-1f2d-4c73-9b01-5b851dd62864"
-
 
         powercfg /delete $PusiGuid 2>$null |
             Out-Null
 
-
         powercfg /import $TempPow $PusiGuid |
             Out-Null
-
-
-        # ----------------------------------------------------
-        # RENOMBRAR
-        # ----------------------------------------------------
 
         powercfg /changename `
             $PusiGuid `
@@ -245,24 +210,16 @@ function Enable-PusiPowerPlan {
             "PUSI OPTI - Perfil de maximo rendimiento para sobremesa" |
             Out-Null
 
-
-        # ----------------------------------------------------
-        # ACTIVAR
-        # ----------------------------------------------------
-
         powercfg /setactive $PusiGuid |
             Out-Null
-
 
         Remove-Item `
             $TempPow `
             -Force `
             -ErrorAction SilentlyContinue
 
-
         $StatusBar.Text =
             "Plan energia Pusi activado."
-
 
         return $true
 
@@ -272,11 +229,499 @@ function Enable-PusiPowerPlan {
         $StatusBar.Text =
             "Error al activar Plan energia Pusi."
 
-
         return $false
+    }
+}
 
+
+# ============================================================
+# LIMPIEZA PROFUNDA PUSI
+# ============================================================
+
+function Invoke-PusiDeepCleanup {
+
+    param(
+        $StatusBar
+    )
+
+    $StatusBar.Text =
+        "Iniciando limpieza profunda..."
+
+    $script:DeletedBytes = 0
+    $script:CleanedItems = 0
+
+
+    function Clear-PusiPath {
+
+        param(
+            [string]$Path
+        )
+
+        if (-not (Test-Path $Path)) {
+            return
+        }
+
+        try {
+
+            $Items =
+                Get-ChildItem `
+                    -LiteralPath $Path `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+
+            foreach ($Item in $Items) {
+
+                try {
+
+                    if (-not $Item.PSIsContainer) {
+
+                        $script:DeletedBytes +=
+                            $Item.Length
+                    }
+
+                    Remove-Item `
+                        -LiteralPath $Item.FullName `
+                        -Recurse `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+
+                    $script:CleanedItems++
+
+                }
+                catch {}
+            }
+
+        }
+        catch {}
     }
 
+
+    # ========================================================
+    # WINDOWS / USUARIO
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando temporales de Windows..."
+
+    $WindowsPaths = @(
+
+        $env:TEMP,
+
+        "$env:LOCALAPPDATA\Temp",
+
+        "$env:SystemRoot\Temp",
+
+        "$env:LOCALAPPDATA\Microsoft\Windows\INetCache",
+
+        "$env:LOCALAPPDATA\Microsoft\Windows\WebCache",
+
+        "$env:LOCALAPPDATA\Microsoft\Windows\WER",
+
+        "$env:PROGRAMDATA\Microsoft\Windows\WER\ReportArchive",
+
+        "$env:PROGRAMDATA\Microsoft\Windows\WER\ReportQueue",
+
+        "$env:LOCALAPPDATA\CrashDumps",
+
+        "$env:SystemRoot\Minidump"
+    )
+
+
+    foreach ($Path in $WindowsPaths) {
+
+        Clear-PusiPath $Path
+    }
+
+
+    # ========================================================
+    # DIRECTX SHADER CACHE
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché DirectX..."
+
+    Clear-PusiPath `
+        "$env:LOCALAPPDATA\D3DSCache"
+
+
+    # ========================================================
+    # NVIDIA
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando cachés NVIDIA..."
+
+    $NvidiaPaths = @(
+
+        "$env:LOCALAPPDATA\NVIDIA\DXCache",
+
+        "$env:LOCALAPPDATA\NVIDIA\GLCache",
+
+        "$env:LOCALAPPDATA\NVIDIA Corporation\NV_Cache",
+
+        "$env:PROGRAMDATA\NVIDIA Corporation\NV_Cache"
+    )
+
+
+    foreach ($Path in $NvidiaPaths) {
+
+        Clear-PusiPath $Path
+    }
+
+
+    # ========================================================
+    # AMD
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando cachés AMD..."
+
+    $AMDPaths = @(
+
+        "$env:LOCALAPPDATA\AMD\DxCache",
+
+        "$env:LOCALAPPDATA\AMD\GLCache",
+
+        "$env:LOCALAPPDATA\AMD\VkCache"
+    )
+
+
+    foreach ($Path in $AMDPaths) {
+
+        Clear-PusiPath $Path
+    }
+
+
+    # ========================================================
+    # INTEL
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando cachés Intel..."
+
+    $IntelPaths = @(
+
+        "$env:LOCALAPPDATA\Intel\ShaderCache",
+
+        "$env:LOCALAPPDATA\Intel\DXCache"
+    )
+
+
+    foreach ($Path in $IntelPaths) {
+
+        Clear-PusiPath $Path
+    }
+
+
+    # ========================================================
+    # CHROME
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de Google Chrome..."
+
+    $ChromeRoot =
+        "$env:LOCALAPPDATA\Google\Chrome\User Data"
+
+
+    if (Test-Path $ChromeRoot) {
+
+        $ChromeProfiles =
+            Get-ChildItem `
+                $ChromeRoot `
+                -Directory `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -eq "Default" -or
+                $_.Name -like "Profile *"
+            }
+
+
+        foreach ($Profile in $ChromeProfiles) {
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Cache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Code Cache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\GPUCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\GrShaderCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\DawnCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Service Worker\CacheStorage"
+        }
+    }
+
+
+    # ========================================================
+    # EDGE
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de Microsoft Edge..."
+
+    $EdgeRoot =
+        "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
+
+
+    if (Test-Path $EdgeRoot) {
+
+        $EdgeProfiles =
+            Get-ChildItem `
+                $EdgeRoot `
+                -Directory `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -eq "Default" -or
+                $_.Name -like "Profile *"
+            }
+
+
+        foreach ($Profile in $EdgeProfiles) {
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Cache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Code Cache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\GPUCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\GrShaderCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\DawnCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Service Worker\CacheStorage"
+        }
+    }
+
+
+    # ========================================================
+    # BRAVE
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de Brave..."
+
+    $BraveRoot =
+        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data"
+
+
+    if (Test-Path $BraveRoot) {
+
+        $BraveProfiles =
+            Get-ChildItem `
+                $BraveRoot `
+                -Directory `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -eq "Default" -or
+                $_.Name -like "Profile *"
+            }
+
+
+        foreach ($Profile in $BraveProfiles) {
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Cache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Code Cache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\GPUCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\GrShaderCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\DawnCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\Service Worker\CacheStorage"
+        }
+    }
+
+
+    # ========================================================
+    # OPERA / OPERA GX
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de Opera..."
+
+    $OperaPaths = @(
+
+        "$env:APPDATA\Opera Software\Opera Stable\Cache",
+
+        "$env:APPDATA\Opera Software\Opera Stable\Code Cache",
+
+        "$env:APPDATA\Opera Software\Opera Stable\GPUCache",
+
+        "$env:APPDATA\Opera Software\Opera GX Stable\Cache",
+
+        "$env:APPDATA\Opera Software\Opera GX Stable\Code Cache",
+
+        "$env:APPDATA\Opera Software\Opera GX Stable\GPUCache"
+    )
+
+
+    foreach ($Path in $OperaPaths) {
+
+        Clear-PusiPath $Path
+    }
+
+
+    # ========================================================
+    # FIREFOX
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de Firefox..."
+
+    $FirefoxRoot =
+        "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
+
+
+    if (Test-Path $FirefoxRoot) {
+
+        $FirefoxProfiles =
+            Get-ChildItem `
+                $FirefoxRoot `
+                -Directory `
+                -ErrorAction SilentlyContinue
+
+
+        foreach ($Profile in $FirefoxProfiles) {
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\cache2"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\startupCache"
+
+            Clear-PusiPath `
+                "$($Profile.FullName)\shader-cache"
+        }
+    }
+
+
+    # ========================================================
+    # DISCORD
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de Discord..."
+
+    $DiscordPaths = @(
+
+        "$env:APPDATA\discord\Cache",
+
+        "$env:APPDATA\discord\Code Cache",
+
+        "$env:APPDATA\discord\GPUCache"
+    )
+
+
+    foreach ($Path in $DiscordPaths) {
+
+        Clear-PusiPath $Path
+    }
+
+
+    # ========================================================
+    # MINIATURAS
+    # ========================================================
+
+    $StatusBar.Text =
+        "Limpiando caché de miniaturas..."
+
+    try {
+
+        Get-ChildItem `
+            "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" `
+            -Filter "thumbcache_*.db" `
+            -Force `
+            -ErrorAction SilentlyContinue |
+        Remove-Item `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+    }
+    catch {}
+
+
+    # ========================================================
+    # PAPELERA
+    # ========================================================
+
+    $StatusBar.Text =
+        "Vaciando papelera..."
+
+    try {
+
+        Clear-RecycleBin `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+    }
+    catch {}
+
+
+    # ========================================================
+    # RESULTADO
+    # ========================================================
+
+    $FreedGB =
+        [math]::Round(
+            $script:DeletedBytes / 1GB,
+            2
+        )
+
+
+    if ($FreedGB -lt 0.01) {
+
+        $FreedMB =
+            [math]::Round(
+                $script:DeletedBytes / 1MB,
+                1
+            )
+
+        $SpaceText =
+            "$FreedMB MB"
+    }
+    else {
+
+        $SpaceText =
+            "$FreedGB GB"
+    }
+
+
+    $StatusBar.Text =
+        "Limpieza profunda terminada. Liberado aprox.: $SpaceText"
+
+
+    [System.Windows.MessageBox]::Show(
+
+        "Limpieza PUSI completada.`n`nEspacio liberado aproximado: $SpaceText`n`nNo se han eliminado contraseñas, cookies, sesiones, favoritos ni historial.`n`nAlgunos archivos en uso pueden haberse omitido.",
+
+        "PUSI OPTI",
+
+        "OK",
+
+        "Information"
+    )
 }
 
 
@@ -372,10 +817,7 @@ function Enable-PusiPowerPlan {
         </Grid.RowDefinitions>
 
 
-        <!-- ================================================= -->
         <!-- CABECERA -->
-        <!-- ================================================= -->
-
 
         <Border
             Grid.Row="0"
@@ -439,7 +881,7 @@ function Enable-PusiPowerPlan {
 
 
                     <TextBlock
-                        Text="v0.3"
+                        Text="v0.4"
 
                         Foreground="#777D87"
 
@@ -457,10 +899,7 @@ function Enable-PusiPowerPlan {
         </Border>
 
 
-        <!-- ================================================= -->
         <!-- PESTAÑAS -->
-        <!-- ================================================= -->
-
 
         <TabControl
 
@@ -471,10 +910,7 @@ function Enable-PusiPowerPlan {
             BorderBrush="#30343B">
 
 
-            <!-- ================================================= -->
             <!-- OPTIMIZACION -->
-            <!-- ================================================= -->
-
 
             <TabItem Header="OPTIMIZACIÓN">
 
@@ -517,11 +953,6 @@ function Enable-PusiPowerPlan {
 
 
                     </StackPanel>
-
-
-                    <!-- ================================================= -->
-                    <!-- PRESETS -->
-                    <!-- ================================================= -->
 
 
                     <WrapPanel Grid.Row="1">
@@ -570,11 +1001,6 @@ function Enable-PusiPowerPlan {
                     </WrapPanel>
 
 
-                    <!-- ================================================= -->
-                    <!-- OPTIMIZACIONES -->
-                    <!-- ================================================= -->
-
-
                     <ScrollViewer
 
                         Grid.Row="2"
@@ -596,10 +1022,7 @@ function Enable-PusiPowerPlan {
                             </Grid.ColumnDefinitions>
 
 
-                            <!-- ================================================= -->
                             <!-- IZQUIERDA -->
-                            <!-- ================================================= -->
-
 
                             <StackPanel Grid.Column="0">
 
@@ -674,15 +1097,10 @@ function Enable-PusiPowerPlan {
                                 <CheckBox
                                     x:Name="OptTemporary"
 
-                                    Content="Limpiar archivos temporales"/>
+                                    Content="Limpieza profunda de temporales y cachés"/>
 
 
                                 <Separator Margin="0,15"/>
-
-
-                                <!-- ================================================= -->
-                                <!-- RENDIMIENTO -->
-                                <!-- ================================================= -->
 
 
                                 <TextBlock
@@ -755,10 +1173,7 @@ function Enable-PusiPowerPlan {
                             </StackPanel>
 
 
-                            <!-- ================================================= -->
                             <!-- DERECHA -->
-                            <!-- ================================================= -->
-
 
                             <StackPanel Grid.Column="2">
 
@@ -845,11 +1260,6 @@ function Enable-PusiPowerPlan {
                                 <Separator Margin="0,15"/>
 
 
-                                <!-- ================================================= -->
-                                <!-- ENERGIA -->
-                                <!-- ================================================= -->
-
-
                                 <TextBlock
 
                                     Text="PLAN DE ENERGÍA"
@@ -901,11 +1311,6 @@ function Enable-PusiPowerPlan {
                     </ScrollViewer>
 
 
-                    <!-- ================================================= -->
-                    <!-- BOTONES -->
-                    <!-- ================================================= -->
-
-
                     <StackPanel
 
                         Grid.Row="3"
@@ -942,10 +1347,7 @@ function Enable-PusiPowerPlan {
             </TabItem>
 
 
-            <!-- ================================================= -->
             <!-- CONFIGURACION -->
-            <!-- ================================================= -->
-
 
             <TabItem Header="CONFIGURACIÓN">
 
@@ -1043,7 +1445,7 @@ function Enable-PusiPowerPlan {
                             <Button
                                 x:Name="CleanTemp"
 
-                                Content="LIMPIAR TEMPORALES"
+                                Content="LIMPIEZA PROFUNDA"
 
                                 Width="195"/>
 
@@ -1112,10 +1514,7 @@ function Enable-PusiPowerPlan {
             </TabItem>
 
 
-            <!-- ================================================= -->
             <!-- ACTUALIZACIONES -->
-            <!-- ================================================= -->
-
 
             <TabItem Header="ACTUALIZACIONES">
 
@@ -1305,11 +1704,6 @@ function Enable-PusiPowerPlan {
         </TabControl>
 
 
-        <!-- ================================================= -->
-        <!-- ESTADO -->
-        <!-- ================================================= -->
-
-
         <Border
 
             Grid.Row="2"
@@ -1352,14 +1746,11 @@ function Enable-PusiPowerPlan {
 $Reader =
     New-Object System.Xml.XmlNodeReader $XAML
 
-
 $Window =
     [Windows.Markup.XamlReader]::Load($Reader)
 
-
 $StatusBar =
     $Window.FindName("StatusBar")
-
 
 $SystemStatus =
     $Window.FindName("SystemStatus")
@@ -1374,16 +1765,13 @@ try {
     $OS =
         Get-CimInstance Win32_OperatingSystem
 
-
     $RAM =
         (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
-
 
     $RAMGB =
         [math]::Round(
             $RAM / 1GB
         )
-
 
     $SystemStatus.Text =
         "$($OS.Caption) | $RAMGB GB RAM"
@@ -1393,7 +1781,6 @@ catch {
 
     $SystemStatus.Text =
         "Windows"
-
 }
 
 
@@ -1435,7 +1822,6 @@ $Todas = @(
     "OptTaskView",
     "OptStartRecommendations",
     "OptWindowSnapping"
-
 )
 
 
@@ -1445,14 +1831,12 @@ function Clear-PusiSelection {
 
         $Window.FindName($Name).IsChecked =
             $false
-
     }
-
 }
 
 
 # ============================================================
-# LIMPIAR
+# PRESETS
 # ============================================================
 
 $Window.FindName("LimpiarSeleccion").Add_Click({
@@ -1461,18 +1845,12 @@ $Window.FindName("LimpiarSeleccion").Add_Click({
 
     $StatusBar.Text =
         "Selección limpiada."
-
 })
 
-
-# ============================================================
-# PRESET BASICO
-# ============================================================
 
 $Window.FindName("PresetBasico").Add_Click({
 
     Clear-PusiSelection
-
 
     @(
 
@@ -1486,24 +1864,16 @@ $Window.FindName("PresetBasico").Add_Click({
 
         $Window.FindName($_).IsChecked =
             $true
-
     }
-
 
     $StatusBar.Text =
         "Preset Básico seleccionado."
-
 })
 
-
-# ============================================================
-# PRESET RECOMENDADO
-# ============================================================
 
 $Window.FindName("PresetRecomendado").Add_Click({
 
     Clear-PusiSelection
-
 
     @(
 
@@ -1528,24 +1898,16 @@ $Window.FindName("PresetRecomendado").Add_Click({
 
         $Window.FindName($_).IsChecked =
             $true
-
     }
-
 
     $StatusBar.Text =
         "Preset Recomendado seleccionado."
-
 })
 
-
-# ============================================================
-# PRESET GAMING
-# ============================================================
 
 $Window.FindName("PresetGaming").Add_Click({
 
     Clear-PusiSelection
-
 
     @(
 
@@ -1557,52 +1919,35 @@ $Window.FindName("PresetGaming").Add_Click({
         "OptDeliveryOptimization",
 
         "OptGameDVR",
-
         "OptWidgets",
-
         "OptSearchWeb",
 
         "OptPowerThrottling",
-
         "OptBackgroundApps",
 
         "OptAnimations",
-
         "OptTransparency",
-
         "OptTaskbarAnimations",
-
         "OptVisualEffects",
 
         "OptGameMode",
-
         "OptMouseAcceleration",
-
         "OptStickyKeys",
 
         "OptTaskbarSearch",
-
         "OptTaskView",
-
         "OptStartRecommendations"
 
     ) | ForEach-Object {
 
         $Window.FindName($_).IsChecked =
             $true
-
     }
-
 
     $StatusBar.Text =
         "Preset PUSI GAMING seleccionado."
-
 })
 
-
-# ============================================================
-# PRESET AGRESIVO
-# ============================================================
 
 $Window.FindName("PresetAgresivo").Add_Click({
 
@@ -1610,18 +1955,15 @@ $Window.FindName("PresetAgresivo").Add_Click({
 
         $Window.FindName($Name).IsChecked =
             $true
-
     }
-
 
     $StatusBar.Text =
         "Preset Agresivo seleccionado."
-
 })
 
 
 # ============================================================
-# PLAN ENERGIA PUSI
+# PLAN ENERGIA
 # ============================================================
 
 $Window.FindName("EnablePusiPower").Add_Click({
@@ -1629,7 +1971,6 @@ $Window.FindName("EnablePusiPower").Add_Click({
     $Result =
         Enable-PusiPowerPlan `
             -StatusBar $StatusBar
-
 
     if ($Result) {
 
@@ -1642,7 +1983,6 @@ $Window.FindName("EnablePusiPower").Add_Click({
             "OK",
 
             "Information"
-
         )
 
     }
@@ -1657,27 +1997,18 @@ $Window.FindName("EnablePusiPower").Add_Click({
             "OK",
 
             "Error"
-
         )
-
     }
-
 })
 
-
-# ============================================================
-# EQUILIBRADO
-# ============================================================
 
 $Window.FindName("EnableBalanced").Add_Click({
 
     powercfg /setactive SCHEME_BALANCED |
         Out-Null
 
-
     $StatusBar.Text =
         "Plan Equilibrado activado."
-
 })
 
 
@@ -1691,29 +2022,15 @@ $Window.FindName("AplicarSeleccion").Add_Click({
         "Aplicando optimizaciones..."
 
 
-    # ========================================================
-    # RESTORE
-    # ========================================================
-
-    if (
-        $Window.FindName(
-            "OptRestorePoint"
-        ).IsChecked
-    ) {
+    if ($Window.FindName("OptRestorePoint").IsChecked) {
 
         $StatusBar.Text =
             "Creando punto de restauración..."
 
-
         New-PusiRestorePoint |
             Out-Null
-
     }
 
-
-    # ========================================================
-    # TELEMETRIA
-    # ========================================================
 
     if ($Window.FindName("OptTelemetry").IsChecked) {
 
@@ -1721,13 +2038,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
             "AllowTelemetry" `
             0
-
     }
 
-
-    # ========================================================
-    # ACTIVITY HISTORY
-    # ========================================================
 
     if ($Window.FindName("OptActivityHistory").IsChecked) {
 
@@ -1736,24 +2048,17 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "EnableActivityFeed" `
             0
 
-
         Set-RegDWORD `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
             "PublishUserActivities" `
             0
 
-
         Set-RegDWORD `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
             "UploadUserActivities" `
             0
-
     }
 
-
-    # ========================================================
-    # CONSUMER FEATURES
-    # ========================================================
 
     if ($Window.FindName("OptConsumerFeatures").IsChecked) {
 
@@ -1761,13 +2066,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" `
             "DisableWindowsConsumerFeatures" `
             1
-
     }
 
-
-    # ========================================================
-    # DELIVERY OPTIMIZATION
-    # ========================================================
 
     if ($Window.FindName("OptDeliveryOptimization").IsChecked) {
 
@@ -1775,13 +2075,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" `
             "DODownloadMode" `
             0
-
     }
 
-
-    # ========================================================
-    # GAME DVR
-    # ========================================================
 
     if ($Window.FindName("OptGameDVR").IsChecked) {
 
@@ -1790,18 +2085,12 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "GameDVR_Enabled" `
             0
 
-
         Set-RegDWORD `
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" `
             "AppCaptureEnabled" `
             0
-
     }
 
-
-    # ========================================================
-    # LOCATION
-    # ========================================================
 
     if ($Window.FindName("OptLocation").IsChecked) {
 
@@ -1809,13 +2098,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" `
             "DisableLocation" `
             1
-
     }
 
-
-    # ========================================================
-    # SEARCH WEB
-    # ========================================================
 
     if ($Window.FindName("OptSearchWeb").IsChecked) {
 
@@ -1823,13 +2107,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Policies\Microsoft\Windows\Explorer" `
             "DisableSearchBoxSuggestions" `
             1
-
     }
 
-
-    # ========================================================
-    # WIDGETS
-    # ========================================================
 
     if ($Window.FindName("OptWidgets").IsChecked) {
 
@@ -1837,35 +2116,19 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "TaskbarDa" `
             0
-
     }
 
 
     # ========================================================
-    # TEMPORALES
+    # LIMPIEZA PROFUNDA
     # ========================================================
 
     if ($Window.FindName("OptTemporary").IsChecked) {
 
-        Remove-Item `
-            "$env:TEMP\*" `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-
-
-        Remove-Item `
-            "$env:SystemRoot\Temp\*" `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-
+        Invoke-PusiDeepCleanup `
+            -StatusBar $StatusBar
     }
 
-
-    # ========================================================
-    # POWER THROTTLING
-    # ========================================================
 
     if ($Window.FindName("OptPowerThrottling").IsChecked) {
 
@@ -1873,13 +2136,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
             "PowerThrottlingOff" `
             1
-
     }
 
-
-    # ========================================================
-    # BACKGROUND APPS
-    # ========================================================
 
     if ($Window.FindName("OptBackgroundApps").IsChecked) {
 
@@ -1887,13 +2145,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
             "GlobalUserDisabled" `
             1
-
     }
 
-
-    # ========================================================
-    # ANIMACIONES
-    # ========================================================
 
     if ($Window.FindName("OptAnimations").IsChecked) {
 
@@ -1901,13 +2154,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Control Panel\Desktop\WindowMetrics" `
             "MinAnimate" `
             "0"
-
     }
 
-
-    # ========================================================
-    # TRANSPARENCIA
-    # ========================================================
 
     if ($Window.FindName("OptTransparency").IsChecked) {
 
@@ -1915,13 +2163,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
             "EnableTransparency" `
             0
-
     }
 
-
-    # ========================================================
-    # TASKBAR ANIMATIONS
-    # ========================================================
 
     if ($Window.FindName("OptTaskbarAnimations").IsChecked) {
 
@@ -1929,13 +2172,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "TaskbarAnimations" `
             0
-
     }
 
-
-    # ========================================================
-    # VISUAL EFFECTS
-    # ========================================================
 
     if ($Window.FindName("OptVisualEffects").IsChecked) {
 
@@ -1943,38 +2181,23 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
             "VisualFXSetting" `
             2
-
     }
 
-
-    # ========================================================
-    # HIBERNACION
-    # ========================================================
 
     if ($Window.FindName("OptHibernation").IsChecked) {
 
         powercfg /hibernate off |
             Out-Null
-
     }
 
-
-    # ========================================================
-    # ONEDRIVE STARTUP
-    # ========================================================
 
     if ($Window.FindName("OptOneDriveStartup").IsChecked) {
 
         Remove-RegValue `
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
             "OneDrive"
-
     }
 
-
-    # ========================================================
-    # STORAGE SENSE
-    # ========================================================
 
     if ($Window.FindName("OptStorageSense").IsChecked) {
 
@@ -1982,13 +2205,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" `
             "01" `
             0
-
     }
 
-
-    # ========================================================
-    # DARK MODE
-    # ========================================================
 
     if ($Window.FindName("OptDarkMode").IsChecked) {
 
@@ -1997,18 +2215,12 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "AppsUseLightTheme" `
             0
 
-
         Set-RegDWORD `
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
             "SystemUsesLightTheme" `
             0
-
     }
 
-
-    # ========================================================
-    # LONG PATHS
-    # ========================================================
 
     if ($Window.FindName("OptLongPaths").IsChecked) {
 
@@ -2016,13 +2228,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
             "LongPathsEnabled" `
             1
-
     }
 
-
-    # ========================================================
-    # EXTENSIONES
-    # ========================================================
 
     if ($Window.FindName("OptFileExtensions").IsChecked) {
 
@@ -2030,13 +2237,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "HideFileExt" `
             0
-
     }
 
-
-    # ========================================================
-    # ARCHIVOS OCULTOS
-    # ========================================================
 
     if ($Window.FindName("OptHiddenFiles").IsChecked) {
 
@@ -2044,13 +2246,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "Hidden" `
             1
-
     }
 
-
-    # ========================================================
-    # GAME MODE
-    # ========================================================
 
     if ($Window.FindName("OptGameMode").IsChecked) {
 
@@ -2058,13 +2255,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\GameBar" `
             "AutoGameModeEnabled" `
             1
-
     }
 
-
-    # ========================================================
-    # MOUSE ACCELERATION
-    # ========================================================
 
     if ($Window.FindName("OptMouseAcceleration").IsChecked) {
 
@@ -2073,24 +2265,17 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "MouseSpeed" `
             "0"
 
-
         Set-RegString `
             "HKCU:\Control Panel\Mouse" `
             "MouseThreshold1" `
             "0"
 
-
         Set-RegString `
             "HKCU:\Control Panel\Mouse" `
             "MouseThreshold2" `
             "0"
-
     }
 
-
-    # ========================================================
-    # STICKY KEYS
-    # ========================================================
 
     if ($Window.FindName("OptStickyKeys").IsChecked) {
 
@@ -2098,13 +2283,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Control Panel\Accessibility\StickyKeys" `
             "Flags" `
             "506"
-
     }
 
-
-    # ========================================================
-    # TASKBAR SEARCH
-    # ========================================================
 
     if ($Window.FindName("OptTaskbarSearch").IsChecked) {
 
@@ -2112,13 +2292,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
             "SearchboxTaskbarMode" `
             0
-
     }
 
-
-    # ========================================================
-    # TASK VIEW
-    # ========================================================
 
     if ($Window.FindName("OptTaskView").IsChecked) {
 
@@ -2126,13 +2301,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "ShowTaskViewButton" `
             0
-
     }
 
-
-    # ========================================================
-    # START RECOMMENDATIONS
-    # ========================================================
 
     if ($Window.FindName("OptStartRecommendations").IsChecked) {
 
@@ -2140,13 +2310,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "Start_IrisRecommendations" `
             0
-
     }
 
-
-    # ========================================================
-    # WINDOW SNAPPING
-    # ========================================================
 
     if ($Window.FindName("OptWindowSnapping").IsChecked) {
 
@@ -2154,13 +2319,8 @@ $Window.FindName("AplicarSeleccion").Add_Click({
             "HKCU:\Control Panel\Desktop" `
             "WindowArrangementActive" `
             "1"
-
     }
 
-
-    # ========================================================
-    # FINAL
-    # ========================================================
 
     $StatusBar.Text =
         "Optimización terminada."
@@ -2175,14 +2335,12 @@ $Window.FindName("AplicarSeleccion").Add_Click({
         "OK",
 
         "Information"
-
     )
-
 })
 
 
 # ============================================================
-# REVERTIR SELECCIONADOS
+# REVERTIR
 # ============================================================
 
 $Window.FindName("RevertirSeleccion").Add_Click({
@@ -2196,7 +2354,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
             "AllowTelemetry"
-
     }
 
 
@@ -2206,16 +2363,13 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
             "EnableActivityFeed"
 
-
         Remove-RegValue `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
             "PublishUserActivities"
 
-
         Remove-RegValue `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
             "UploadUserActivities"
-
     }
 
 
@@ -2224,7 +2378,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" `
             "DisableWindowsConsumerFeatures"
-
     }
 
 
@@ -2233,7 +2386,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" `
             "DODownloadMode"
-
     }
 
 
@@ -2244,12 +2396,10 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "GameDVR_Enabled" `
             1
 
-
         Set-RegDWORD `
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" `
             "AppCaptureEnabled" `
             1
-
     }
 
 
@@ -2258,7 +2408,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" `
             "DisableLocation"
-
     }
 
 
@@ -2267,7 +2416,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKCU:\Software\Policies\Microsoft\Windows\Explorer" `
             "DisableSearchBoxSuggestions"
-
     }
 
 
@@ -2277,7 +2425,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "TaskbarDa" `
             1
-
     }
 
 
@@ -2286,7 +2433,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
             "PowerThrottlingOff"
-
     }
 
 
@@ -2295,7 +2441,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
             "GlobalUserDisabled"
-
     }
 
 
@@ -2305,7 +2450,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Control Panel\Desktop\WindowMetrics" `
             "MinAnimate" `
             "1"
-
     }
 
 
@@ -2315,7 +2459,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
             "EnableTransparency" `
             1
-
     }
 
 
@@ -2325,7 +2468,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "TaskbarAnimations" `
             1
-
     }
 
 
@@ -2335,7 +2477,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
             "VisualFXSetting" `
             0
-
     }
 
 
@@ -2343,7 +2484,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
 
         powercfg /hibernate on |
             Out-Null
-
     }
 
 
@@ -2353,7 +2493,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" `
             "01" `
             1
-
     }
 
 
@@ -2364,12 +2503,10 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "AppsUseLightTheme" `
             1
 
-
         Set-RegDWORD `
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
             "SystemUsesLightTheme" `
             1
-
     }
 
 
@@ -2378,7 +2515,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
             "LongPathsEnabled"
-
     }
 
 
@@ -2388,7 +2524,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "HideFileExt" `
             1
-
     }
 
 
@@ -2398,7 +2533,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "Hidden" `
             2
-
     }
 
 
@@ -2407,7 +2541,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         Remove-RegValue `
             "HKCU:\Software\Microsoft\GameBar" `
             "AutoGameModeEnabled"
-
     }
 
 
@@ -2417,7 +2550,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Control Panel\Mouse" `
             "MouseSpeed" `
             "1"
-
     }
 
 
@@ -2427,7 +2559,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
             "SearchboxTaskbarMode" `
             1
-
     }
 
 
@@ -2437,7 +2568,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "ShowTaskViewButton" `
             1
-
     }
 
 
@@ -2447,7 +2577,6 @@ $Window.FindName("RevertirSeleccion").Add_Click({
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
             "Start_IrisRecommendations" `
             1
-
     }
 
 
@@ -2464,14 +2593,12 @@ $Window.FindName("RevertirSeleccion").Add_Click({
         "OK",
 
         "Information"
-
     )
-
 })
 
 
 # ============================================================
-# SFC
+# CONFIGURACION / REPARACION
 # ============================================================
 
 $Window.FindName("RunSFC").Add_Click({
@@ -2480,13 +2607,8 @@ $Window.FindName("RunSFC").Add_Click({
         powershell.exe `
         -Verb RunAs `
         -ArgumentList '-NoExit -Command "sfc /scannow"'
-
 })
 
-
-# ============================================================
-# DISM
-# ============================================================
 
 $Window.FindName("RunDISM").Add_Click({
 
@@ -2494,29 +2616,18 @@ $Window.FindName("RunDISM").Add_Click({
         powershell.exe `
         -Verb RunAs `
         -ArgumentList '-NoExit -Command "DISM /Online /Cleanup-Image /RestoreHealth"'
-
 })
 
-
-# ============================================================
-# FLUSH DNS
-# ============================================================
 
 $Window.FindName("FlushDNS").Add_Click({
 
     ipconfig /flushdns |
         Out-Null
 
-
     $StatusBar.Text =
         "Caché DNS limpiada."
-
 })
 
-
-# ============================================================
-# RESET NETWORK
-# ============================================================
 
 $Window.FindName("ResetNetwork").Add_Click({
 
@@ -2530,61 +2641,32 @@ $Window.FindName("ResetNetwork").Add_Click({
             "YesNo",
 
             "Warning"
-
         )
-
 
     if ($Answer -eq "Yes") {
 
         netsh winsock reset |
             Out-Null
 
-
         netsh int ip reset |
             Out-Null
 
-
         $StatusBar.Text =
             "Red restablecida. Reinicia Windows."
-
     }
-
 })
 
 
 # ============================================================
-# LIMPIAR TEMP
+# LIMPIEZA MANUAL
 # ============================================================
 
 $Window.FindName("CleanTemp").Add_Click({
 
-    $StatusBar.Text =
-        "Limpiando temporales..."
-
-
-    Remove-Item `
-        "$env:TEMP\*" `
-        -Recurse `
-        -Force `
-        -ErrorAction SilentlyContinue
-
-
-    Remove-Item `
-        "$env:SystemRoot\Temp\*" `
-        -Recurse `
-        -Force `
-        -ErrorAction SilentlyContinue
-
-
-    $StatusBar.Text =
-        "Temporales limpiados."
-
+    Invoke-PusiDeepCleanup `
+        -StatusBar $StatusBar
 })
 
-
-# ============================================================
-# SHADER CACHE
-# ============================================================
 
 $Window.FindName("CleanShaderCache").Add_Click({
 
@@ -2594,13 +2676,11 @@ $Window.FindName("CleanShaderCache").Add_Click({
         -Force `
         -ErrorAction SilentlyContinue
 
-
     Remove-Item `
         "$env:LOCALAPPDATA\NVIDIA\DXCache\*" `
         -Recurse `
         -Force `
         -ErrorAction SilentlyContinue
-
 
     Remove-Item `
         "$env:LOCALAPPDATA\NVIDIA\GLCache\*" `
@@ -2608,23 +2688,16 @@ $Window.FindName("CleanShaderCache").Add_Click({
         -Force `
         -ErrorAction SilentlyContinue
 
-
     Remove-Item `
         "$env:LOCALAPPDATA\AMD\DxCache\*" `
         -Recurse `
         -Force `
         -ErrorAction SilentlyContinue
 
-
     $StatusBar.Text =
         "Shader Cache limpiada."
-
 })
 
-
-# ============================================================
-# PAPELERA
-# ============================================================
 
 $Window.FindName("EmptyRecycle").Add_Click({
 
@@ -2632,22 +2705,19 @@ $Window.FindName("EmptyRecycle").Add_Click({
         -Force `
         -ErrorAction SilentlyContinue
 
-
     $StatusBar.Text =
         "Papelera vaciada."
-
 })
 
 
 # ============================================================
-# COMPROBAR TRIM
+# STORAGE
 # ============================================================
 
 $Window.FindName("CheckTrim").Add_Click({
 
     $Result =
         fsutil behavior query DisableDeleteNotify
-
 
     [System.Windows.MessageBox]::Show(
 
@@ -2658,21 +2728,14 @@ $Window.FindName("CheckTrim").Add_Click({
         "OK",
 
         "Information"
-
     )
-
 })
 
-
-# ============================================================
-# OPTIMIZAR SSD / NVME
-# ============================================================
 
 $Window.FindName("OptimizeSSD").Add_Click({
 
     $StatusBar.Text =
         "Ejecutando ReTrim..."
-
 
     try {
 
@@ -2683,7 +2746,6 @@ $Window.FindName("OptimizeSSD").Add_Click({
                 $_.DriveType -eq "Fixed"
             }
 
-
         foreach ($Volume in $Volumes) {
 
             Optimize-Volume `
@@ -2691,26 +2753,21 @@ $Window.FindName("OptimizeSSD").Add_Click({
                 -ReTrim `
                 -ErrorAction SilentlyContinue |
                 Out-Null
-
         }
-
 
         $StatusBar.Text =
             "Optimización SSD/NVMe finalizada."
-
     }
     catch {
 
         $StatusBar.Text =
             "No se pudo completar ReTrim."
-
     }
-
 })
 
 
 # ============================================================
-# PAUSA 7 DIAS
+# WINDOWS UPDATE
 # ============================================================
 
 $Window.FindName("PauseUpdates7").Add_Click({
@@ -2718,64 +2775,46 @@ $Window.FindName("PauseUpdates7").Add_Click({
     $Now =
         (Get-Date).ToUniversalTime()
 
-
     $End =
         $Now.AddDays(7)
-
 
     Set-RegString `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesStartTime" `
         $Now.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-
     Set-RegString `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesExpiryTime" `
         $End.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-
     $StatusBar.Text =
         "Actualizaciones pausadas 7 días."
-
 })
 
-
-# ============================================================
-# PAUSA 35 DIAS
-# ============================================================
 
 $Window.FindName("PauseUpdates35").Add_Click({
 
     $Now =
         (Get-Date).ToUniversalTime()
 
-
     $End =
         $Now.AddDays(35)
-
 
     Set-RegString `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesStartTime" `
         $Now.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-
     Set-RegString `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesExpiryTime" `
         $End.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-
     $StatusBar.Text =
         "Actualizaciones pausadas 35 días."
-
 })
 
-
-# ============================================================
-# QUITAR PAUSA
-# ============================================================
 
 $Window.FindName("ResumeUpdates").Add_Click({
 
@@ -2783,21 +2822,14 @@ $Window.FindName("ResumeUpdates").Add_Click({
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesStartTime"
 
-
     Remove-RegValue `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesExpiryTime"
 
-
     $StatusBar.Text =
         "Pausa de Windows Update eliminada."
-
 })
 
-
-# ============================================================
-# BLOQUEAR DRIVER UPDATE
-# ============================================================
 
 $Window.FindName("DisableDriverWU").Add_Click({
 
@@ -2806,16 +2838,10 @@ $Window.FindName("DisableDriverWU").Add_Click({
         "ExcludeWUDriversInQualityUpdate" `
         1
 
-
     $StatusBar.Text =
         "Drivers bloqueados en Windows Update."
-
 })
 
-
-# ============================================================
-# RESTAURAR DRIVERS
-# ============================================================
 
 $Window.FindName("EnableDriverWU").Add_Click({
 
@@ -2823,16 +2849,10 @@ $Window.FindName("EnableDriverWU").Add_Click({
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" `
         "ExcludeWUDriversInQualityUpdate"
 
-
     $StatusBar.Text =
         "Actualización de drivers restaurada."
-
 })
 
-
-# ============================================================
-# DESACTIVAR WINDOWS UPDATE
-# ============================================================
 
 $Window.FindName("DisableWindowsUpdate").Add_Click({
 
@@ -2846,44 +2866,32 @@ $Window.FindName("DisableWindowsUpdate").Add_Click({
             "YesNo",
 
             "Warning"
-
         )
-
 
     if ($Answer -ne "Yes") {
 
         return
-
     }
-
 
     Set-RegDWORD `
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" `
         "NoAutoUpdate" `
         1
 
-
     Stop-Service `
         wuauserv `
         -Force `
         -ErrorAction SilentlyContinue
-
 
     Set-Service `
         wuauserv `
         -StartupType Disabled `
         -ErrorAction SilentlyContinue
 
-
     $StatusBar.Text =
         "Windows Update desactivado."
-
 })
 
-
-# ============================================================
-# REACTIVAR WINDOWS UPDATE
-# ============================================================
 
 $Window.FindName("EnableWindowsUpdate").Add_Click({
 
@@ -2891,21 +2899,17 @@ $Window.FindName("EnableWindowsUpdate").Add_Click({
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" `
         "NoAutoUpdate"
 
-
     Set-Service `
         wuauserv `
         -StartupType Manual `
         -ErrorAction SilentlyContinue
 
-
     Start-Service `
         wuauserv `
         -ErrorAction SilentlyContinue
 
-
     $StatusBar.Text =
         "Windows Update reactivado."
-
 })
 
 
