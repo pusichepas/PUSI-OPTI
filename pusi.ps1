@@ -4262,7 +4262,7 @@ function Update-PusiSummary {
     # RESTART
 
     if (
-        Test-PusiPendingRestart -or
+        Test-PusiPendingRestart) -or
         $script:NeedsRestart
     ) {
 
