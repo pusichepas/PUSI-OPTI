@@ -1,7 +1,12 @@
 # ============================================================
 # PUSI OPTI
 # Windows Optimization Utility
-# VERSION 0.5
+# VERSION 0.6
+#
+# Requiere:
+#   - PowerShell como administrador
+#   - Bitsum-Highest-Performance.pow en el repositorio
+#
 # ============================================================
 
 Add-Type -AssemblyName PresentationFramework
@@ -10,10 +15,35 @@ Add-Type -AssemblyName WindowsBase
 
 
 # ============================================================
+# CONFIGURACION GENERAL
+# ============================================================
+
+$script:PusiVersion = "0.6"
+
+$script:PowURL =
+    "https://raw.githubusercontent.com/pusichepas/PUSI-OPTI/main/Bitsum-Highest-Performance.pow"
+
+$script:PusiPowerGuid =
+    "7f34a6b5-1f2d-4c73-9b01-5b851dd62864"
+
+$script:SessionBackup = @{}
+
+$script:InitialSnapshot = $null
+$script:LastSnapshot    = $null
+
+$script:ResultadosOK       = 0
+$script:ResultadosError    = 0
+$script:ResultadosOmitidos = 0
+
+$script:FreedBytes = 0
+$script:NeedsRestart = $false
+
+
+# ============================================================
 # ADMINISTRADOR
 # ============================================================
 
-function Test-Admin {
+function Test-PusiAdmin {
 
     $Identity =
         [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -27,7 +57,7 @@ function Test-Admin {
 }
 
 
-if (-not (Test-Admin)) {
+if (-not (Test-PusiAdmin)) {
 
     [System.Windows.MessageBox]::Show(
         "PUSI OPTI necesita permisos de administrador.`n`nAbre PowerShell como administrador y vuelve a ejecutar el comando.",
@@ -41,116 +71,10 @@ if (-not (Test-Admin)) {
 
 
 # ============================================================
-# VARIABLES DE SESION
-# ============================================================
-
-$script:ResultadosOK = 0
-$script:ResultadosError = 0
-$script:ResultadosOmitidos = 0
-
-$script:DeletedBytes = 0
-
-
-# ============================================================
 # REGISTRO
 # ============================================================
 
-function Set-RegDWORD {
-
-    param(
-        [string]$Path,
-        [string]$Name,
-        [int]$Value
-    )
-
-    try {
-
-        if (-not (Test-Path $Path)) {
-
-            New-Item `
-                -Path $Path `
-                -Force |
-                Out-Null
-        }
-
-        New-ItemProperty `
-            -Path $Path `
-            -Name $Name `
-            -PropertyType DWord `
-            -Value $Value `
-            -Force `
-            -ErrorAction Stop |
-            Out-Null
-
-        return $true
-    }
-    catch {
-
-        return $false
-    }
-}
-
-
-function Set-RegString {
-
-    param(
-        [string]$Path,
-        [string]$Name,
-        [string]$Value
-    )
-
-    try {
-
-        if (-not (Test-Path $Path)) {
-
-            New-Item `
-                -Path $Path `
-                -Force |
-                Out-Null
-        }
-
-        New-ItemProperty `
-            -Path $Path `
-            -Name $Name `
-            -PropertyType String `
-            -Value $Value `
-            -Force `
-            -ErrorAction Stop |
-            Out-Null
-
-        return $true
-    }
-    catch {
-
-        return $false
-    }
-}
-
-
-function Remove-RegValue {
-
-    param(
-        [string]$Path,
-        [string]$Name
-    )
-
-    try {
-
-        Remove-ItemProperty `
-            -Path $Path `
-            -Name $Name `
-            -ErrorAction SilentlyContinue
-
-        return $true
-    }
-    catch {
-
-        return $false
-    }
-}
-
-
-function Get-RegValue {
+function Get-PusiRegValue {
 
     param(
         [string]$Path,
@@ -173,14 +97,312 @@ function Get-RegValue {
 }
 
 
+function Test-PusiRegValueExists {
+
+    param(
+        [string]$Path,
+        [string]$Name
+    )
+
+    try {
+
+        Get-ItemProperty `
+            -Path $Path `
+            -Name $Name `
+            -ErrorAction Stop |
+            Out-Null
+
+        return $true
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
+function Set-PusiDWORD {
+
+    param(
+        [string]$Path,
+        [string]$Name,
+        [int]$Value
+    )
+
+    try {
+
+        if (-not (Test-Path $Path)) {
+
+            New-Item `
+                -Path $Path `
+                -Force |
+                Out-Null
+        }
+
+        New-ItemProperty `
+            -Path $Path `
+            -Name $Name `
+            -Value $Value `
+            -PropertyType DWord `
+            -Force `
+            -ErrorAction Stop |
+            Out-Null
+
+        return $true
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
+function Set-PusiString {
+
+    param(
+        [string]$Path,
+        [string]$Name,
+        [string]$Value
+    )
+
+    try {
+
+        if (-not (Test-Path $Path)) {
+
+            New-Item `
+                -Path $Path `
+                -Force |
+                Out-Null
+        }
+
+        New-ItemProperty `
+            -Path $Path `
+            -Name $Name `
+            -Value $Value `
+            -PropertyType String `
+            -Force `
+            -ErrorAction Stop |
+            Out-Null
+
+        return $true
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
+function Remove-PusiRegValue {
+
+    param(
+        [string]$Path,
+        [string]$Name
+    )
+
+    try {
+
+        Remove-ItemProperty `
+            -Path $Path `
+            -Name $Name `
+            -ErrorAction SilentlyContinue
+
+        return $true
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
+# ============================================================
+# BACKUP EXACTO DE SESION
+# ============================================================
+
+function Backup-PusiRegValue {
+
+    param(
+        [string]$ID,
+        [string]$Path,
+        [string]$Name
+    )
+
+    if ($script:SessionBackup.ContainsKey($ID)) {
+        return
+    }
+
+    $Exists =
+        Test-PusiRegValueExists `
+            -Path $Path `
+            -Name $Name
+
+    $Value = $null
+    $Kind  = $null
+
+    if ($Exists) {
+
+        try {
+
+            $Key =
+                Get-Item `
+                    -Path $Path `
+                    -ErrorAction Stop
+
+            $Value =
+                $Key.GetValue(
+                    $Name,
+                    $null,
+                    "DoNotExpandEnvironmentNames"
+                )
+
+            $Kind =
+                $Key.GetValueKind($Name).ToString()
+        }
+        catch {}
+    }
+
+
+    $script:SessionBackup[$ID] = [PSCustomObject]@{
+
+        Path   = $Path
+        Name   = $Name
+        Exists = $Exists
+        Value  = $Value
+        Kind   = $Kind
+    }
+}
+
+
+function Restore-PusiRegValue {
+
+    param(
+        [string]$ID
+    )
+
+    if (-not $script:SessionBackup.ContainsKey($ID)) {
+
+        return $false
+    }
+
+
+    $Data =
+        $script:SessionBackup[$ID]
+
+
+    try {
+
+        if (-not $Data.Exists) {
+
+            Remove-PusiRegValue `
+                -Path $Data.Path `
+                -Name $Data.Name |
+                Out-Null
+
+            return $true
+        }
+
+
+        if (-not (Test-Path $Data.Path)) {
+
+            New-Item `
+                -Path $Data.Path `
+                -Force |
+                Out-Null
+        }
+
+
+        switch ($Data.Kind) {
+
+            "DWord" {
+
+                New-ItemProperty `
+                    -Path $Data.Path `
+                    -Name $Data.Name `
+                    -Value ([int]$Data.Value) `
+                    -PropertyType DWord `
+                    -Force |
+                    Out-Null
+            }
+
+
+            "QWord" {
+
+                New-ItemProperty `
+                    -Path $Data.Path `
+                    -Name $Data.Name `
+                    -Value ([long]$Data.Value) `
+                    -PropertyType QWord `
+                    -Force |
+                    Out-Null
+            }
+
+
+            "ExpandString" {
+
+                New-ItemProperty `
+                    -Path $Data.Path `
+                    -Name $Data.Name `
+                    -Value ([string]$Data.Value) `
+                    -PropertyType ExpandString `
+                    -Force |
+                    Out-Null
+            }
+
+
+            "MultiString" {
+
+                New-ItemProperty `
+                    -Path $Data.Path `
+                    -Name $Data.Name `
+                    -Value $Data.Value `
+                    -PropertyType MultiString `
+                    -Force |
+                    Out-Null
+            }
+
+
+            default {
+
+                New-ItemProperty `
+                    -Path $Data.Path `
+                    -Name $Data.Name `
+                    -Value ([string]$Data.Value) `
+                    -PropertyType String `
+                    -Force |
+                    Out-Null
+            }
+        }
+
+        return $true
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
 # ============================================================
 # RESULTADOS
 # ============================================================
 
+function Reset-PusiResults {
+
+    $script:ResultadosOK       = 0
+    $script:ResultadosError    = 0
+    $script:ResultadosOmitidos = 0
+}
+
+
 function Add-PusiResult {
 
     param(
-        [ValidateSet("OK","ERROR","OMITIDO")]
+        [ValidateSet(
+            "OK",
+            "ERROR",
+            "OMITIDO"
+        )]
         [string]$Type
     )
 
@@ -202,7 +424,7 @@ function Add-PusiResult {
 
 
 # ============================================================
-# RESTORE POINT
+# PUNTO DE RESTAURACION
 # ============================================================
 
 function New-PusiRestorePoint {
@@ -212,6 +434,7 @@ function New-PusiRestorePoint {
         Enable-ComputerRestore `
             -Drive "C:\" `
             -ErrorAction SilentlyContinue
+
 
         Checkpoint-Computer `
             -Description "PUSI OPTI - PRE OPTIMIZACION" `
@@ -228,6 +451,263 @@ function New-PusiRestorePoint {
 
 
 # ============================================================
+# REINICIO PENDIENTE
+# ============================================================
+
+function Test-PusiPendingRestart {
+
+    $Pending = $false
+
+
+    $Paths = @(
+
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+    )
+
+
+    foreach ($Path in $Paths) {
+
+        if (Test-Path $Path) {
+
+            $Pending = $true
+        }
+    }
+
+
+    try {
+
+        $Rename =
+            Get-ItemProperty `
+                "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" `
+                -Name "PendingFileRenameOperations" `
+                -ErrorAction SilentlyContinue
+
+        if ($Rename) {
+
+            $Pending = $true
+        }
+    }
+    catch {}
+
+
+    return $Pending
+}
+
+
+# ============================================================
+# HARDWARE
+# ============================================================
+
+function Get-PusiHardware {
+
+    $CPU =
+        Get-CimInstance Win32_Processor |
+        Select-Object -First 1
+
+
+    $GPU =
+        Get-CimInstance Win32_VideoController |
+        Where-Object {
+            $_.Name -notmatch "Microsoft Basic"
+        } |
+        Sort-Object AdapterRAM -Descending |
+        Select-Object -First 1
+
+
+    $CS =
+        Get-CimInstance Win32_ComputerSystem
+
+
+    $OS =
+        Get-CimInstance Win32_OperatingSystem
+
+
+    $Battery =
+        Get-CimInstance Win32_Battery `
+            -ErrorAction SilentlyContinue
+
+
+    $RAMModules =
+        Get-CimInstance Win32_PhysicalMemory `
+            -ErrorAction SilentlyContinue
+
+
+    $RAMGB =
+        [math]::Round(
+            $CS.TotalPhysicalMemory / 1GB,
+            0
+        )
+
+
+    $RAMSpeed =
+        $RAMModules |
+        Where-Object ConfiguredClockSpeed |
+        Select-Object -ExpandProperty ConfiguredClockSpeed |
+        Sort-Object -Descending |
+        Select-Object -First 1
+
+
+    if (-not $RAMSpeed) {
+
+        $RAMSpeed = "?"
+    }
+
+
+    if ($Battery) {
+
+        $Type = "PORTÁTIL"
+    }
+    else {
+
+        $Type = "SOBREMESA"
+    }
+
+
+    return [PSCustomObject]@{
+
+        CPU =
+            $CPU.Name.Trim()
+
+        GPU =
+            if ($GPU) {
+                $GPU.Name.Trim()
+            }
+            else {
+                "No detectada"
+            }
+
+        RAM =
+            "$RAMGB GB"
+
+        RAMSpeed =
+            "$RAMSpeed MT/s"
+
+        Windows =
+            $OS.Caption
+
+        Build =
+            $OS.BuildNumber
+
+        Tipo =
+            $Type
+    }
+}
+
+
+# ============================================================
+# ALMACENAMIENTO
+# ============================================================
+
+function Get-PusiStorageInfo {
+
+    try {
+
+        $Drive =
+            Get-CimInstance Win32_LogicalDisk `
+                -Filter "DeviceID='C:'"
+
+
+        $FreeGB =
+            [math]::Round(
+                $Drive.FreeSpace / 1GB,
+                1
+            )
+
+
+        $TotalGB =
+            [math]::Round(
+                $Drive.Size / 1GB,
+                1
+            )
+
+
+        $PercentFree =
+            [math]::Round(
+                ($Drive.FreeSpace / $Drive.Size) * 100,
+                0
+            )
+
+
+        return [PSCustomObject]@{
+
+            FreeGB      = $FreeGB
+            TotalGB     = $TotalGB
+            PercentFree = $PercentFree
+        }
+    }
+    catch {
+
+        return $null
+    }
+}
+
+
+# ============================================================
+# TRIM
+# ============================================================
+
+function Test-PusiTrim {
+
+    try {
+
+        $Result =
+            fsutil behavior query DisableDeleteNotify 2>$null
+
+
+        if (
+            $Result -match
+            "NTFS DisableDeleteNotify = 0"
+        ) {
+
+            return $true
+        }
+
+        return $false
+    }
+    catch {
+
+        return $false
+    }
+}
+
+
+# ============================================================
+# PLAN ACTUAL
+# ============================================================
+
+function Get-PusiActivePowerPlan {
+
+    try {
+
+        $Result =
+            powercfg /getactivescheme
+
+
+        $Name =
+            [regex]::Match(
+                $Result,
+                '\((.+)\)'
+            ).Groups[1].Value
+
+
+        if ($Name) {
+
+            return $Name
+        }
+
+
+        return $Result
+    }
+    catch {
+
+        return "Desconocido"
+    }
+}
+
+
+# ============================================================
 # PLAN ENERGIA PUSI
 # ============================================================
 
@@ -235,12 +715,11 @@ function Enable-PusiPowerPlan {
 
     try {
 
-        $PlanName =
-            "Plan energia Pusi"
-
         $Existing =
             powercfg /list |
-            Select-String -SimpleMatch $PlanName
+            Select-String `
+                -SimpleMatch `
+                "Plan energia Pusi"
 
 
         if ($Existing) {
@@ -250,6 +729,7 @@ function Enable-PusiPowerPlan {
                     $Existing.ToString(),
                     '[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}'
                 ).Value
+
 
             if ($Guid) {
 
@@ -261,10 +741,6 @@ function Enable-PusiPowerPlan {
         }
 
 
-        $PowURL =
-            "https://raw.githubusercontent.com/pusichepas/PUSI-OPTI/main/Bitsum-Highest-Performance.pow"
-
-
         $TempPow =
             Join-Path `
                 $env:TEMP `
@@ -272,32 +748,31 @@ function Enable-PusiPowerPlan {
 
 
         Invoke-WebRequest `
-            -Uri $PowURL `
+            -Uri $script:PowURL `
             -OutFile $TempPow `
             -UseBasicParsing `
             -ErrorAction Stop
 
 
-        $PusiGuid =
-            "7f34a6b5-1f2d-4c73-9b01-5b851dd62864"
-
-
-        powercfg /delete $PusiGuid 2>$null |
+        powercfg /delete $script:PusiPowerGuid 2>$null |
             Out-Null
 
 
-        powercfg /import $TempPow $PusiGuid |
+        powercfg /import `
+            $TempPow `
+            $script:PusiPowerGuid |
             Out-Null
 
 
         powercfg /changename `
-            $PusiGuid `
+            $script:PusiPowerGuid `
             "Plan energia Pusi" `
             "PUSI OPTI - Perfil de maximo rendimiento para sobremesa" |
             Out-Null
 
 
-        powercfg /setactive $PusiGuid |
+        powercfg /setactive `
+            $script:PusiPowerGuid |
             Out-Null
 
 
@@ -323,10 +798,11 @@ function Enable-PusiPowerPlan {
 function Invoke-PusiDeepCleanup {
 
     param(
-        $StatusBar
+        $StatusControl
     )
 
-    $script:DeletedBytes = 0
+
+    $script:FreedBytes = 0
 
 
     function Clear-PusiPath {
@@ -335,24 +811,25 @@ function Invoke-PusiDeepCleanup {
             [string]$Path
         )
 
+
         if (-not (Test-Path $Path)) {
+
             return
         }
 
+
         try {
 
-            $Files =
-                Get-ChildItem `
-                    -LiteralPath $Path `
-                    -File `
-                    -Recurse `
-                    -Force `
-                    -ErrorAction SilentlyContinue
+            Get-ChildItem `
+                -LiteralPath $Path `
+                -File `
+                -Force `
+                -Recurse `
+                -ErrorAction SilentlyContinue |
+            ForEach-Object {
 
-            foreach ($File in $Files) {
-
-                $script:DeletedBytes +=
-                    $File.Length
+                $script:FreedBytes +=
+                    $_.Length
             }
 
 
@@ -369,12 +846,11 @@ function Invoke-PusiDeepCleanup {
     }
 
 
-    $StatusBar.Text =
-        "Limpiando archivos temporales..."
+    $StatusControl.Text =
+        "Limpiando temporales de Windows..."
 
 
-    $Paths = @(
-
+    @(
         $env:TEMP,
 
         "$env:LOCALAPPDATA\Temp",
@@ -410,18 +886,16 @@ function Invoke-PusiDeepCleanup {
         "$env:APPDATA\discord\Code Cache",
 
         "$env:APPDATA\discord\GPUCache"
-    )
+    ) |
+    ForEach-Object {
 
-
-    foreach ($Path in $Paths) {
-
-        Clear-PusiPath $Path
+        Clear-PusiPath $_
     }
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # CHROMIUM
-    # ========================================================
+    # --------------------------------------------------------
 
     $ChromiumRoots = @(
 
@@ -435,50 +909,59 @@ function Invoke-PusiDeepCleanup {
 
     foreach ($Root in $ChromiumRoots) {
 
-        if (Test-Path $Root) {
+        if (-not (Test-Path $Root)) {
 
-            $Profiles =
-                Get-ChildItem `
-                    $Root `
-                    -Directory `
-                    -ErrorAction SilentlyContinue |
-                Where-Object {
-                    $_.Name -eq "Default" -or
-                    $_.Name -like "Profile *"
-                }
+            continue
+        }
 
 
-            foreach ($Profile in $Profiles) {
+        $Profiles =
+            Get-ChildItem `
+                $Root `
+                -Directory `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
 
-                @(
-                    "Cache",
-                    "Code Cache",
-                    "GPUCache",
-                    "GrShaderCache",
-                    "DawnCache",
-                    "Service Worker\CacheStorage"
-                ) |
-                ForEach-Object {
+                $_.Name -eq "Default" -or
+                $_.Name -like "Profile *"
+            }
 
-                    Clear-PusiPath `
-                        "$($Profile.FullName)\$_"
-                }
+
+        foreach ($Profile in $Profiles) {
+
+            @(
+                "Cache",
+                "Code Cache",
+                "GPUCache",
+                "GrShaderCache",
+                "DawnCache",
+                "Service Worker\CacheStorage"
+            ) |
+            ForEach-Object {
+
+                Clear-PusiPath `
+                    "$($Profile.FullName)\$_"
             }
         }
     }
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # OPERA
-    # ========================================================
+    # --------------------------------------------------------
 
     @(
+
         "$env:APPDATA\Opera Software\Opera Stable\Cache",
+
         "$env:APPDATA\Opera Software\Opera Stable\Code Cache",
+
         "$env:APPDATA\Opera Software\Opera Stable\GPUCache",
 
         "$env:APPDATA\Opera Software\Opera GX Stable\Cache",
+
         "$env:APPDATA\Opera Software\Opera GX Stable\Code Cache",
+
         "$env:APPDATA\Opera Software\Opera GX Stable\GPUCache"
     ) |
     ForEach-Object {
@@ -487,9 +970,9 @@ function Invoke-PusiDeepCleanup {
     }
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # FIREFOX
-    # ========================================================
+    # --------------------------------------------------------
 
     $Firefox =
         "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
@@ -503,18 +986,46 @@ function Invoke-PusiDeepCleanup {
             -ErrorAction SilentlyContinue |
         ForEach-Object {
 
-            Clear-PusiPath "$($_.FullName)\cache2"
+            Clear-PusiPath `
+                "$($_.FullName)\cache2"
 
-            Clear-PusiPath "$($_.FullName)\startupCache"
+            Clear-PusiPath `
+                "$($_.FullName)\startupCache"
 
-            Clear-PusiPath "$($_.FullName)\shader-cache"
+            Clear-PusiPath `
+                "$($_.FullName)\shader-cache"
         }
     }
 
 
-    # ========================================================
+    # --------------------------------------------------------
+    # MINIATURAS
+    # --------------------------------------------------------
+
+    try {
+
+        Get-ChildItem `
+            "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" `
+            -Filter "thumbcache_*.db" `
+            -Force `
+            -ErrorAction SilentlyContinue |
+        ForEach-Object {
+
+            $script:FreedBytes +=
+                $_.Length
+
+            Remove-Item `
+                $_.FullName `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+    catch {}
+
+
+    # --------------------------------------------------------
     # PAPELERA
-    # ========================================================
+    # --------------------------------------------------------
 
     try {
 
@@ -525,105 +1036,111 @@ function Invoke-PusiDeepCleanup {
     catch {}
 
 
-    $FreedMB =
+    if ($script:FreedBytes -ge 1GB) {
+
+        return "$(
+            [math]::Round(
+                $script:FreedBytes / 1GB,
+                2
+            )
+        ) GB"
+    }
+
+
+    return "$(
         [math]::Round(
-            $script:DeletedBytes / 1MB,
+            $script:FreedBytes / 1MB,
             0
         )
-
-
-    if ($FreedMB -ge 1024) {
-
-        $Freed =
-            "$([math]::Round($FreedMB / 1024,2)) GB"
-    }
-    else {
-
-        $Freed =
-            "$FreedMB MB"
-    }
-
-
-    return $Freed
+    ) MB"
 }
 
 
 # ============================================================
-# HARDWARE
+# SNAPSHOT DEL SISTEMA
 # ============================================================
 
-function Get-PusiHardware {
-
-    $CPU =
-        Get-CimInstance Win32_Processor |
-        Select-Object -First 1
-
-
-    $GPU =
-        Get-CimInstance Win32_VideoController |
-        Where-Object {
-            $_.Name -notmatch "Microsoft"
-        } |
-        Select-Object -First 1
-
-
-    $Computer =
-        Get-CimInstance Win32_ComputerSystem
-
+function Get-PusiSnapshot {
 
     $OS =
         Get-CimInstance Win32_OperatingSystem
 
 
-    $RAM =
+    $Processes =
+        (
+            Get-Process `
+                -ErrorAction SilentlyContinue
+        ).Count
+
+
+    $MemoryUsed =
+        (
+            $OS.TotalVisibleMemorySize -
+            $OS.FreePhysicalMemory
+        ) * 1KB
+
+
+    $MemoryUsedGB =
         [math]::Round(
-            $Computer.TotalPhysicalMemory / 1GB,
-            0
+            $MemoryUsed / 1GB,
+            2
         )
 
 
-    $Battery =
-        Get-CimInstance Win32_Battery `
-            -ErrorAction SilentlyContinue
-
-
-    if ($Battery) {
-
-        $Type =
-            "PORTÁTIL"
-    }
-    else {
-
-        $Type =
-            "SOBREMESA"
-    }
+    $Storage =
+        Get-PusiStorageInfo
 
 
     return [PSCustomObject]@{
 
-        CPU =
-            $CPU.Name
+        Fecha =
+            Get-Date
 
-        GPU =
-            $GPU.Name
+        Procesos =
+            $Processes
 
-        RAM =
-            "$RAM GB"
+        RAMUsada =
+            $MemoryUsedGB
 
-        Windows =
-            $OS.Caption
+        PlanEnergia =
+            Get-PusiActivePowerPlan
 
-        Build =
-            $OS.BuildNumber
+        GameMode =
+            (
+                Get-PusiRegValue `
+                    "HKCU:\Software\Microsoft\GameBar" `
+                    "AutoGameModeEnabled"
+            ) -eq 1
 
-        Tipo =
-            $Type
+        GameDVR =
+            (
+                Get-PusiRegValue `
+                    "HKCU:\System\GameConfigStore" `
+                    "GameDVR_Enabled"
+            ) -ne 0
+
+        PowerThrottlingOff =
+            (
+                Get-PusiRegValue `
+                    "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
+                    "PowerThrottlingOff"
+            ) -eq 1
+
+        FreeSpace =
+            if ($Storage) {
+                $Storage.FreeGB
+            }
+            else {
+                "?"
+            }
+
+        Trim =
+            Test-PusiTrim
+
+        Reinicio =
+            Test-PusiPendingRestart
     }
 }
-
-
-$Hardware =
-    Get-PusiHardware
 
 
 # ============================================================
@@ -637,70 +1154,93 @@ $Hardware =
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 
  Title="PUSI OPTI"
- Width="1260"
- Height="850"
 
- MinWidth="1100"
+ Width="1320"
+ Height="900"
+
+ MinWidth="1120"
  MinHeight="720"
 
  WindowStartupLocation="CenterScreen"
 
- Background="#101217">
+ Background="#0D1015">
 
 
 <Window.Resources>
 
 
-<Style TargetType="Button">
+    <Style TargetType="Button">
 
-    <Setter Property="Background" Value="#20252B"/>
+        <Setter Property="Background"
+                Value="#202631"/>
 
-    <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground"
+                Value="White"/>
 
-    <Setter Property="BorderBrush" Value="#3D444E"/>
+        <Setter Property="BorderBrush"
+                Value="#394351"/>
 
-    <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
 
-    <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="Padding"
+                Value="14,9"/>
 
-    <Setter Property="Margin" Value="4"/>
+        <Setter Property="Margin"
+                Value="4"/>
 
-    <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontSize"
+                Value="13"/>
 
-</Style>
+        <Setter Property="Cursor"
+                Value="Hand"/>
 
-
-<Style TargetType="CheckBox">
-
-    <Setter Property="Foreground" Value="White"/>
-
-    <Setter Property="FontSize" Value="13"/>
-
-    <Setter Property="Margin" Value="5"/>
-
-</Style>
-
-
-<Style TargetType="TextBlock">
-
-    <Setter Property="Foreground" Value="White"/>
-
-</Style>
+    </Style>
 
 
-<Style TargetType="TabItem">
+    <Style TargetType="CheckBox">
 
-    <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground"
+                Value="White"/>
 
-    <Setter Property="Background" Value="#181C22"/>
+        <Setter Property="FontSize"
+                Value="13"/>
 
-    <Setter Property="FontSize" Value="15"/>
+        <Setter Property="Margin"
+                Value="5"/>
 
-    <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Cursor"
+                Value="Hand"/>
 
-    <Setter Property="Padding" Value="25,10"/>
+    </Style>
 
-</Style>
+
+    <Style TargetType="TextBlock">
+
+        <Setter Property="Foreground"
+                Value="White"/>
+
+    </Style>
+
+
+    <Style TargetType="TabItem">
+
+        <Setter Property="Foreground"
+                Value="White"/>
+
+        <Setter Property="Background"
+                Value="#171C24"/>
+
+        <Setter Property="FontSize"
+                Value="14"/>
+
+        <Setter Property="FontWeight"
+                Value="SemiBold"/>
+
+        <Setter Property="Padding"
+                Value="24,11"/>
+
+    </Style>
 
 
 </Window.Resources>
@@ -711,25 +1251,25 @@ $Hardware =
 
 <Grid.RowDefinitions>
 
-    <RowDefinition Height="122"/>
+    <RowDefinition Height="120"/>
 
     <RowDefinition Height="*"/>
 
-    <RowDefinition Height="65"/>
+    <RowDefinition Height="60"/>
 
 </Grid.RowDefinitions>
 
 
 <!-- ===================================================== -->
-<!-- CABECERA -->
+<!-- HEADER -->
 <!-- ===================================================== -->
 
 <Border
  Grid.Row="0"
 
- Background="#171A20"
+ Background="#151A21"
 
- BorderBrush="#303640"
+ BorderBrush="#2D3540"
 
  BorderThickness="0,0,0,1">
 
@@ -743,96 +1283,96 @@ $Hardware =
 
     <ColumnDefinition Width="*"/>
 
-    <ColumnDefinition Width="250"/>
+    <ColumnDefinition Width="300"/>
 
 </Grid.ColumnDefinitions>
 
 
-<StackPanel
- VerticalAlignment="Center">
+<StackPanel VerticalAlignment="Center">
 
 
-<TextBlock
- Text="PUSI OPTI"
+    <TextBlock
+     Text="PUSI OPTI"
 
- FontSize="32"
+     FontSize="34"
 
- FontWeight="Bold"/>
-
-
-<TextBlock
- Text="Windows Optimization Utility"
-
- Foreground="#8E96A3"
-
- FontSize="13"/>
+     FontWeight="Bold"/>
 
 
-<TextBlock
- Text="v0.5"
+    <TextBlock
+     Text="Windows Gaming Optimization"
 
- Foreground="#606772"
+     Foreground="#8A95A5"
 
- FontSize="12"
+     FontSize="13"/>
 
- Margin="0,5,0,0"/>
+
+    <TextBlock
+     x:Name="VersionText"
+
+     Text="v0.6"
+
+     Foreground="#586271"
+
+     Margin="0,5,0,0"/>
 
 
 </StackPanel>
 
 
-<!-- HARDWARE -->
-
 <Grid
  Grid.Column="1"
+
  VerticalAlignment="Center">
 
 
 <Grid.RowDefinitions>
 
-<RowDefinition/>
+    <RowDefinition/>
 
-<RowDefinition/>
+    <RowDefinition/>
 
-<RowDefinition/>
+    <RowDefinition/>
+
+    <RowDefinition/>
 
 </Grid.RowDefinitions>
 
 
 <TextBlock
- x:Name="InfoCPU"
+ x:Name="HeaderCPU"
 
  Grid.Row="0"
 
- Foreground="#D7DBE2"
-
- FontSize="12"/>
+ Foreground="#D8DEE8"/>
 
 
 <TextBlock
- x:Name="InfoGPU"
+ x:Name="HeaderGPU"
 
  Grid.Row="1"
 
- Foreground="#D7DBE2"
-
- FontSize="12"/>
+ Foreground="#D8DEE8"/>
 
 
 <TextBlock
- x:Name="InfoSistema"
+ x:Name="HeaderRAM"
 
  Grid.Row="2"
 
- Foreground="#8E96A3"
+ Foreground="#A3ADBA"/>
 
- FontSize="12"/>
+
+<TextBlock
+ x:Name="HeaderWindows"
+
+ Grid.Row="3"
+
+ Foreground="#A3ADBA"/>
 
 
 </Grid>
 
-
-<!-- ESTADO -->
 
 <StackPanel
  Grid.Column="2"
@@ -843,37 +1383,39 @@ $Hardware =
 
 
 <TextBlock
- x:Name="SelectedCount"
+ x:Name="HeaderSelection"
 
  Text="0 ajustes seleccionados"
 
- FontSize="14"
-
  FontWeight="SemiBold"
+
+ FontSize="14"
 
  HorizontalAlignment="Right"/>
 
 
 <TextBlock
- x:Name="RestartCount"
+ x:Name="HeaderRestart"
 
- Text="0 requieren reinicio"
+ Text="REINICIO: NO"
 
- Foreground="#D0A24C"
+ Foreground="#63D89A"
 
- Margin="0,5,0,0"
+ FontWeight="Bold"
+
+ Margin="0,6,0,0"
 
  HorizontalAlignment="Right"/>
 
 
 <Button
- x:Name="RefreshState"
+ x:Name="RefreshAll"
 
  Content="ACTUALIZAR ESTADO"
 
- Width="180"
+ Width="190"
 
- Margin="0,8,0,0"/>
+ Margin="0,9,0,0"/>
 
 
 </StackPanel>
@@ -892,9 +1434,486 @@ $Hardware =
 <TabControl
  Grid.Row="1"
 
- Background="#101217"
+ Background="#0D1015"
 
- BorderBrush="#303640">
+ BorderBrush="#2D3540">
+
+
+<!-- ===================================================== -->
+<!-- RESUMEN -->
+<!-- ===================================================== -->
+
+<TabItem Header="RESUMEN">
+
+
+<ScrollViewer
+ VerticalScrollBarVisibility="Auto">
+
+
+<StackPanel Margin="24">
+
+
+<Grid>
+
+
+<Grid.ColumnDefinitions>
+
+    <ColumnDefinition Width="*"/>
+
+    <ColumnDefinition Width="20"/>
+
+    <ColumnDefinition Width="*"/>
+
+</Grid.ColumnDefinitions>
+
+
+<!-- ESTADO -->
+
+<Border
+ Grid.Column="0"
+
+ Background="#151A21"
+
+ BorderBrush="#2D3540"
+
+ BorderThickness="1"
+
+ CornerRadius="8"
+
+ Padding="20">
+
+
+<StackPanel>
+
+
+<TextBlock
+ Text="ESTADO DEL EQUIPO"
+
+ FontSize="21"
+
+ FontWeight="Bold"/>
+
+
+<TextBlock
+ Text="Análisis rápido de configuración y mantenimiento."
+
+ Foreground="#8A95A5"
+
+ Margin="0,5,0,18"/>
+
+
+<Grid>
+
+
+<Grid.ColumnDefinitions>
+
+<ColumnDefinition Width="210"/>
+
+<ColumnDefinition Width="*"/>
+
+</Grid.ColumnDefinitions>
+
+
+<Grid.RowDefinitions>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+<RowDefinition Height="32"/>
+
+</Grid.RowDefinitions>
+
+
+<TextBlock Grid.Row="0"
+           Text="Game Mode"/>
+
+<TextBlock
+ x:Name="SummaryGameMode"
+ Grid.Row="0"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="1"
+           Text="Game DVR"/>
+
+<TextBlock
+ x:Name="SummaryGameDVR"
+ Grid.Row="1"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="2"
+           Text="Power Throttling"/>
+
+<TextBlock
+ x:Name="SummaryPowerThrottling"
+ Grid.Row="2"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="3"
+           Text="TRIM"/>
+
+<TextBlock
+ x:Name="SummaryTrim"
+ Grid.Row="3"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="4"
+           Text="Plan de energía"/>
+
+<TextBlock
+ x:Name="SummaryPowerPlan"
+ Grid.Row="4"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="5"
+           Text="Espacio libre C:"/>
+
+<TextBlock
+ x:Name="SummaryStorage"
+ Grid.Row="5"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="6"
+           Text="Reinicio pendiente"/>
+
+<TextBlock
+ x:Name="SummaryRestart"
+ Grid.Row="6"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+<TextBlock Grid.Row="7"
+           Text="Tipo de equipo"/>
+
+<TextBlock
+ x:Name="SummaryType"
+ Grid.Row="7"
+ Grid.Column="1"
+ FontWeight="Bold"/>
+
+
+</Grid>
+
+
+</StackPanel>
+
+
+</Border>
+
+
+<!-- ANALISIS -->
+
+<Border
+ Grid.Column="2"
+
+ Background="#151A21"
+
+ BorderBrush="#2D3540"
+
+ BorderThickness="1"
+
+ CornerRadius="8"
+
+ Padding="20">
+
+
+<StackPanel>
+
+
+<TextBlock
+ Text="ANÁLISIS PUSI"
+
+ FontSize="21"
+
+ FontWeight="Bold"/>
+
+
+<TextBlock
+ Text="Incidencias y recomendaciones detectadas."
+
+ Foreground="#8A95A5"
+
+ Margin="0,5,0,15"/>
+
+
+<TextBlock
+ x:Name="AnalysisTotals"
+
+ Text="Pulsa ANALIZAR PC."
+
+ FontWeight="SemiBold"
+
+ Margin="0,0,0,10"/>
+
+
+<ListBox
+ x:Name="AnalysisList"
+
+ Height="230"
+
+ Background="#10141A"
+
+ Foreground="White"
+
+ BorderBrush="#303947"/>
+
+
+<WrapPanel Margin="0,12,0,0">
+
+
+<Button
+ x:Name="AnalyzePC"
+
+ Content="ANALIZAR PC"
+
+ Width="150"/>
+
+
+<Button
+ x:Name="CopyReport"
+
+ Content="COPIAR INFORME"
+
+ Width="170"/>
+
+
+</WrapPanel>
+
+
+</StackPanel>
+
+
+</Border>
+
+
+</Grid>
+
+
+<!-- ANTES / DESPUES -->
+
+<Border
+ Background="#151A21"
+
+ BorderBrush="#2D3540"
+
+ BorderThickness="1"
+
+ CornerRadius="8"
+
+ Padding="20"
+
+ Margin="0,20,0,0">
+
+
+<StackPanel>
+
+
+<TextBlock
+ Text="ANTES / DESPUÉS"
+
+ FontSize="21"
+
+ FontWeight="Bold"/>
+
+
+<TextBlock
+ Text="Guarda el estado inicial y compáralo después de optimizar."
+
+ Foreground="#8A95A5"
+
+ Margin="0,5,0,15"/>
+
+
+<Grid>
+
+
+<Grid.ColumnDefinitions>
+
+<ColumnDefinition Width="180"/>
+
+<ColumnDefinition Width="*"/>
+
+<ColumnDefinition Width="*"/>
+
+</Grid.ColumnDefinitions>
+
+
+<Grid.RowDefinitions>
+
+<RowDefinition Height="34"/>
+
+<RowDefinition Height="34"/>
+
+<RowDefinition Height="34"/>
+
+<RowDefinition Height="34"/>
+
+<RowDefinition Height="34"/>
+
+<RowDefinition Height="34"/>
+
+</Grid.RowDefinitions>
+
+
+<TextBlock
+ Grid.Column="1"
+ Text="ANTES"
+
+ FontWeight="Bold"
+
+ Foreground="#4FD6FF"/>
+
+
+<TextBlock
+ Grid.Column="2"
+ Text="DESPUÉS"
+
+ FontWeight="Bold"
+
+ Foreground="#4FD6FF"/>
+
+
+<TextBlock Grid.Row="1"
+           Text="Procesos"/>
+
+<TextBlock
+ x:Name="BeforeProcesses"
+ Grid.Row="1"
+ Grid.Column="1"
+ Text="-"/>
+
+<TextBlock
+ x:Name="AfterProcesses"
+ Grid.Row="1"
+ Grid.Column="2"
+ Text="-"/>
+
+
+<TextBlock Grid.Row="2"
+           Text="RAM usada"/>
+
+<TextBlock
+ x:Name="BeforeRAM"
+ Grid.Row="2"
+ Grid.Column="1"
+ Text="-"/>
+
+<TextBlock
+ x:Name="AfterRAM"
+ Grid.Row="2"
+ Grid.Column="2"
+ Text="-"/>
+
+
+<TextBlock Grid.Row="3"
+           Text="Plan energía"/>
+
+<TextBlock
+ x:Name="BeforePower"
+ Grid.Row="3"
+ Grid.Column="1"
+ Text="-"/>
+
+<TextBlock
+ x:Name="AfterPower"
+ Grid.Row="3"
+ Grid.Column="2"
+ Text="-"/>
+
+
+<TextBlock Grid.Row="4"
+           Text="Game DVR"/>
+
+<TextBlock
+ x:Name="BeforeDVR"
+ Grid.Row="4"
+ Grid.Column="1"
+ Text="-"/>
+
+<TextBlock
+ x:Name="AfterDVR"
+ Grid.Row="4"
+ Grid.Column="2"
+ Text="-"/>
+
+
+<TextBlock Grid.Row="5"
+           Text="Espacio libre C:"/>
+
+<TextBlock
+ x:Name="BeforeStorage"
+ Grid.Row="5"
+ Grid.Column="1"
+ Text="-"/>
+
+<TextBlock
+ x:Name="AfterStorage"
+ Grid.Row="5"
+ Grid.Column="2"
+ Text="-"/>
+
+
+</Grid>
+
+
+<WrapPanel Margin="0,15,0,0">
+
+
+<Button
+ x:Name="SaveInitialState"
+
+ Content="GUARDAR ESTADO INICIAL"
+
+ Width="210"/>
+
+
+<Button
+ x:Name="CompareState"
+
+ Content="COMPARAR RESULTADOS"
+
+ Width="210"/>
+
+
+</WrapPanel>
+
+
+</StackPanel>
+
+
+</Border>
+
+
+</StackPanel>
+
+
+</ScrollViewer>
+
+
+</TabItem>
 
 
 <!-- ===================================================== -->
@@ -920,6 +1939,21 @@ $Hardware =
 </Grid.RowDefinitions>
 
 
+<Grid>
+
+
+<Grid.ColumnDefinitions>
+
+<ColumnDefinition Width="*"/>
+
+<ColumnDefinition Width="330"/>
+
+</Grid.ColumnDefinitions>
+
+
+<StackPanel>
+
+
 <TextBlock
  Text="Optimización de Windows"
 
@@ -928,14 +1962,48 @@ $Hardware =
  FontWeight="Bold"/>
 
 
+<TextBlock
+ Text="Selecciona únicamente los ajustes que quieras modificar."
+
+ Foreground="#8A95A5"
+
+ Margin="0,4,0,0"/>
+
+
+</StackPanel>
+
+
+<TextBox
+ x:Name="SearchTweaks"
+
+ Grid.Column="1"
+
+ Height="34"
+
+ VerticalContentAlignment="Center"
+
+ Background="#151A21"
+
+ Foreground="White"
+
+ BorderBrush="#35404D"
+
+ Padding="10,0"
+
+ Text=""/>
+
+
+</Grid>
+
+
 <WrapPanel
  Grid.Row="1"
 
- Margin="0,12,0,8">
+ Margin="0,12,0,10">
 
 
 <Button
- x:Name="PresetSeguro"
+ x:Name="PresetSafe"
 
  Content="SEGURO"
 
@@ -943,7 +2011,7 @@ $Hardware =
 
 
 <Button
- x:Name="PresetRecomendado"
+ x:Name="PresetRecommended"
 
  Content="RECOMENDADO"
 
@@ -959,7 +2027,7 @@ $Hardware =
 
 
 <Button
- x:Name="PresetAgresivo"
+ x:Name="PresetAggressive"
 
  Content="AGRESIVO"
 
@@ -997,11 +2065,12 @@ $Hardware =
 </Grid.ColumnDefinitions>
 
 
-<!-- ================================================= -->
 <!-- IZQUIERDA -->
-<!-- ================================================= -->
 
-<StackPanel Grid.Column="0">
+<StackPanel
+ x:Name="LeftTweaks"
+
+ Grid.Column="0">
 
 
 <TextBlock
@@ -1019,73 +2088,73 @@ $Hardware =
 <CheckBox
  x:Name="OptRestorePoint"
 
- Content="Crear punto de restauración    [SEGURO]"
+ Content="Crear punto de restauración"
 
- ToolTip="Crea un punto de restauración antes de realizar cambios importantes."/>
+ ToolTip="SEGURO - Crea una copia de restauración antes de modificar el sistema."/>
 
 
 <CheckBox
  x:Name="OptTelemetry"
 
- Content="Desactivar telemetría    [RECOMENDADO]"
+ Content="Desactivar telemetría"
 
- ToolTip="Reduce la recopilación de diagnósticos y telemetría permitida por Windows."/>
+ ToolTip="RECOMENDADO - Reduce la telemetría permitida mediante políticas de Windows."/>
 
 
 <CheckBox
  x:Name="OptActivityHistory"
 
- Content="Desactivar historial de actividad    [RECOMENDADO]"
+ Content="Desactivar historial de actividad"
 
- ToolTip="Impide que Windows publique y almacene determinadas actividades del usuario."/>
+ ToolTip="RECOMENDADO - Desactiva Activity Feed y publicación de actividades."/>
 
 
 <CheckBox
  x:Name="OptConsumerFeatures"
 
- Content="Desactivar contenido promocional    [SEGURO]"
+ Content="Desactivar contenido promocional"
 
- ToolTip="Reduce sugerencias, promociones y contenido patrocinado de Windows."/>
+ ToolTip="SEGURO - Reduce sugerencias y Consumer Features de Windows."/>
 
 
 <CheckBox
- x:Name="OptDeliveryOptimization"
+ x:Name="OptDelivery"
 
- Content="Desactivar P2P de Windows Update    [RECOMENDADO]"
+ Content="Desactivar Delivery Optimization P2P"
 
- ToolTip="Evita compartir actualizaciones de Windows con otros equipos mediante Delivery Optimization."/>
+ ToolTip="RECOMENDADO - Evita compartir descargas de Windows Update mediante P2P."/>
 
 
 <CheckBox
  x:Name="OptSearchWeb"
 
- Content="Desactivar búsquedas web en Inicio    [SEGURO]"
+ Content="Desactivar resultados web en Inicio"
 
- ToolTip="Hace que la búsqueda del menú Inicio se centre en archivos y aplicaciones locales."/>
+ ToolTip="SEGURO - Reduce resultados web en la búsqueda del menú Inicio."/>
 
 
 <CheckBox
  x:Name="OptWidgets"
 
- Content="Desactivar Widgets    [SEGURO]"
+ Content="Ocultar Widgets"
 
- ToolTip="Oculta Widgets de la barra de tareas."/>
+ ToolTip="SEGURO - Oculta Widgets de la barra de tareas."/>
 
 
 <CheckBox
  x:Name="OptGameDVR"
 
- Content="Desactivar Game DVR    [RECOMENDADO]"
+ Content="Desactivar Game DVR"
 
- ToolTip="Desactiva las funciones de grabación en segundo plano de Game DVR."/>
+ ToolTip="RECOMENDADO - Desactiva captura y Game DVR en segundo plano."/>
 
 
 <CheckBox
- x:Name="OptDeepCleanup"
+ x:Name="OptDeepClean"
 
- Content="Limpieza profunda de temporales    [SEGURO]"
+ Content="Limpieza profunda de temporales y cachés"
 
- ToolTip="Limpia temporales y cachés regenerables de Windows, navegadores, GPU y Discord. No borra contraseñas, cookies ni favoritos."/>
+ ToolTip="SEGURO - Windows, GPU, navegadores, Discord, miniaturas y papelera. No borra contraseñas ni cookies."/>
 
 
 <Separator Margin="0,15"/>
@@ -1106,71 +2175,72 @@ $Hardware =
 <CheckBox
  x:Name="OptGameMode"
 
- Content="Activar Game Mode    [RECOMENDADO]"
+ Content="Activar Game Mode"
 
- ToolTip="Activa el modo Juego de Windows."/>
+ ToolTip="RECOMENDADO - Activa el modo Juego de Windows."/>
 
 
 <CheckBox
  x:Name="OptPowerThrottling"
 
- Content="Desactivar Power Throttling    [AGRESIVO]"
+ Content="Desactivar Power Throttling"
 
- ToolTip="Impide que Windows aplique determinadas políticas de ahorro de energía a procesos."/>
+ ToolTip="AGRESIVO - Reduce políticas de ahorro de energía sobre procesos."/>
 
 
 <CheckBox
  x:Name="OptBackgroundApps"
 
- Content="Reducir aplicaciones en segundo plano    [AGRESIVO]"
+ Content="Reducir aplicaciones en segundo plano"
 
- ToolTip="Reduce la capacidad de determinadas aplicaciones para trabajar en segundo plano."/>
+ ToolTip="AGRESIVO - Restringe determinadas tareas de aplicaciones en segundo plano."/>
 
 
 <CheckBox
  x:Name="OptAnimations"
 
- Content="Desactivar animaciones    [SEGURO]"
+ Content="Desactivar animaciones de ventanas"
 
- ToolTip="Reduce animaciones visuales de las ventanas."/>
+ ToolTip="SEGURO - Reduce animaciones visuales de Windows."/>
 
 
 <CheckBox
  x:Name="OptTransparency"
 
- Content="Desactivar transparencias    [SEGURO]"
+ Content="Desactivar transparencias"
 
- ToolTip="Desactiva efectos de transparencia de la interfaz."/>
+ ToolTip="SEGURO - Desactiva transparencia de la interfaz."/>
 
 
 <CheckBox
  x:Name="OptTaskbarAnimations"
 
- Content="Desactivar animaciones de barra    [SEGURO]"
+ Content="Desactivar animaciones de barra de tareas"
 
- ToolTip="Desactiva determinadas animaciones de la barra de tareas."/>
+ ToolTip="SEGURO - Reduce animaciones de la barra de tareas."/>
 
 
 <CheckBox
- x:Name="OptVisualEffects"
+ x:Name="OptVisualPerformance"
 
- Content="Efectos visuales para rendimiento    [AGRESIVO]"
+ Content="Efectos visuales orientados a rendimiento"
 
- ToolTip="Configura Windows para priorizar rendimiento visual sobre efectos."/>
+ ToolTip="AGRESIVO - Prioriza rendimiento frente a efectos visuales."/>
 
 
 </StackPanel>
 
 
-<!-- ================================================= -->
 <!-- DERECHA -->
-<!-- ================================================= -->
 
-<StackPanel Grid.Column="2">
+<StackPanel
+ x:Name="RightTweaks"
+
+ Grid.Column="2">
 
 
 <TextBlock
- Text="EXPLORADOR E INTERFAZ"
+ Text="INTERFAZ Y GAMING"
 
  Foreground="#4FD6FF"
 
@@ -1182,67 +2252,67 @@ $Hardware =
 
 
 <CheckBox
- x:Name="OptFileExtensions"
+ x:Name="OptExtensions"
 
- Content="Mostrar extensiones de archivo    [SEGURO]"
+ Content="Mostrar extensiones de archivo"
 
- ToolTip="Muestra .exe, .txt, .jpg y otras extensiones en el Explorador."/>
+ ToolTip="SEGURO - Muestra .exe, .txt, .jpg y demás extensiones."/>
 
 
 <CheckBox
  x:Name="OptHiddenFiles"
 
- Content="Mostrar archivos ocultos    [SEGURO]"
+ Content="Mostrar archivos ocultos"
 
- ToolTip="Permite visualizar archivos marcados como ocultos."/>
+ ToolTip="SEGURO - Muestra archivos marcados como ocultos."/>
 
 
 <CheckBox
  x:Name="OptLongPaths"
 
- Content="Activar rutas largas    [SEGURO]"
+ Content="Activar rutas largas"
 
- ToolTip="Permite a aplicaciones compatibles utilizar rutas superiores al límite clásico de 260 caracteres."/>
+ ToolTip="SEGURO - Habilita rutas Win32 largas para aplicaciones compatibles."/>
 
 
 <CheckBox
  x:Name="OptMouseAcceleration"
 
- Content="Desactivar aceleración del ratón    [RECOMENDADO]"
+ Content="Desactivar aceleración del ratón"
 
- ToolTip="Desactiva la aceleración clásica de Windows para una respuesta de ratón más consistente."/>
+ ToolTip="RECOMENDADO - Elimina la aceleración clásica de puntero de Windows."/>
 
 
 <CheckBox
  x:Name="OptStickyKeys"
 
- Content="Desactivar Sticky Keys    [RECOMENDADO]"
+ Content="Reducir activación accidental de Sticky Keys"
 
- ToolTip="Evita la activación accidental de teclas especiales durante juegos."/>
+ ToolTip="RECOMENDADO - Evita activaciones accidentales durante juegos."/>
 
 
 <CheckBox
  x:Name="OptTaskbarSearch"
 
- Content="Ocultar búsqueda de la barra    [SEGURO]"
+ Content="Ocultar búsqueda de la barra"
 
- ToolTip="Oculta el cuadro o icono de búsqueda de la barra de tareas."/>
+ ToolTip="SEGURO - Oculta el cuadro de búsqueda de la barra de tareas."/>
 
 
 <CheckBox
  x:Name="OptTaskView"
 
- Content="Ocultar Vista de tareas    [SEGURO]"
+ Content="Ocultar Vista de tareas"
 
- ToolTip="Oculta el botón Vista de tareas."/>
+ ToolTip="SEGURO - Oculta el botón Vista de tareas."/>
 
 
 <CheckBox
  x:Name="OptStartRecommendations"
 
- Content="Reducir recomendaciones de Inicio    [SEGURO]"
+ Content="Reducir recomendaciones del menú Inicio"
 
- ToolTip="Reduce recomendaciones y sugerencias en Inicio."/>
+ ToolTip="SEGURO - Reduce recomendaciones y sugerencias en Inicio."/>
 
 
 <Separator Margin="0,15"/>
@@ -1261,13 +2331,11 @@ $Hardware =
 
 
 <TextBlock
- Text="Perfil PUSI basado en Bitsum Highest Performance."
+ Text="Perfil de máximo rendimiento de PUSI OPTI."
 
- Foreground="#8E96A3"
+ Foreground="#8A95A5"
 
- TextWrapping="Wrap"
-
- Margin="5"/>
+ Margin="5,0,5,10"/>
 
 
 <Button
@@ -1287,13 +2355,13 @@ $Hardware =
 
 
 <TextBlock
- x:Name="PowerPlanState"
+ x:Name="PowerPlanText"
 
  Text="Plan actual: detectando..."
 
- Foreground="#8E96A3"
+ Foreground="#8A95A5"
 
- Margin="6,8,0,0"/>
+ Margin="5,8,5,0"/>
 
 
 </StackPanel>
@@ -1304,8 +2372,6 @@ $Hardware =
 
 </ScrollViewer>
 
-
-<!-- BOTONES -->
 
 <Grid Grid.Row="3">
 
@@ -1320,11 +2386,11 @@ $Hardware =
 
 
 <TextBlock
- x:Name="ApplyHint"
+ x:Name="SelectionInfo"
 
- Text="Selecciona uno o varios ajustes."
+ Text="0 ajustes seleccionados"
 
- Foreground="#8E96A3"
+ Foreground="#8A95A5"
 
  VerticalAlignment="Center"/>
 
@@ -1340,7 +2406,7 @@ $Hardware =
 
  Content="REVERTIR SELECCIONADOS"
 
- Width="210"/>
+ Width="215"/>
 
 
 <Button
@@ -1348,7 +2414,7 @@ $Hardware =
 
  Content="APLICAR SELECCIONADOS"
 
- Width="210"/>
+ Width="215"/>
 
 
 </StackPanel>
@@ -1364,10 +2430,10 @@ $Hardware =
 
 
 <!-- ===================================================== -->
-<!-- CONFIGURACION -->
+<!-- MANTENIMIENTO -->
 <!-- ===================================================== -->
 
-<TabItem Header="CONFIGURACIÓN">
+<TabItem Header="MANTENIMIENTO">
 
 
 <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -1377,7 +2443,7 @@ $Hardware =
 
 
 <TextBlock
- Text="Mantenimiento y diagnóstico"
+ Text="Mantenimiento del sistema"
 
  FontSize="23"
 
@@ -1385,9 +2451,9 @@ $Hardware =
 
 
 <TextBlock
- Text="Herramientas integradas de Windows y PUSI OPTI."
+ Text="Reparación, red, limpieza y almacenamiento."
 
- Foreground="#8E96A3"
+ Foreground="#8A95A5"
 
  Margin="0,5,0,20"/>
 
@@ -1421,20 +2487,39 @@ $Hardware =
  Width="190"/>
 
 
+</WrapPanel>
+
+
+<Separator Margin="0,18"/>
+
+
+<TextBlock
+ Text="RED"
+
+ Foreground="#4FD6FF"
+
+ FontSize="17"
+
+ FontWeight="Bold"/>
+
+
+<WrapPanel Margin="0,8">
+
+
 <Button
  x:Name="FlushDNS"
 
  Content="VACIAR DNS"
 
- Width="160"/>
+ Width="170"/>
 
 
 <Button
  x:Name="ResetNetwork"
 
- Content="REINICIAR RED"
+ Content="RESET WINSOCK / TCP"
 
- Width="170"/>
+ Width="210"/>
 
 
 </WrapPanel>
@@ -1461,7 +2546,7 @@ $Hardware =
 
  Content="LIMPIEZA PROFUNDA"
 
- Width="200"/>
+ Width="210"/>
 
 
 <Button
@@ -1469,7 +2554,7 @@ $Hardware =
 
  Content="VACIAR PAPELERA"
 
- Width="175"/>
+ Width="180"/>
 
 
 </WrapPanel>
@@ -1502,9 +2587,9 @@ $Hardware =
 <Button
  x:Name="OptimizeStorage"
 
- Content="OPTIMIZAR SSD / NVME"
+ Content="RETRIM SSD / NVME"
 
- Width="210"/>
+ Width="200"/>
 
 
 </WrapPanel>
@@ -1541,9 +2626,9 @@ $Hardware =
 
 
 <TextBlock
- Text="Control de actualizaciones del sistema."
+ Text="Control de actualizaciones y drivers."
 
- Foreground="#8E96A3"
+ Foreground="#8A95A5"
 
  Margin="0,5,0,20"/>
 
@@ -1551,7 +2636,7 @@ $Hardware =
 <Border
  Background="#251E15"
 
- BorderBrush="#936E31"
+ BorderBrush="#986F2D"
 
  BorderThickness="1"
 
@@ -1561,9 +2646,9 @@ $Hardware =
 
 
 <TextBlock
- Text="AVISO: desactivar Windows Update puede impedir la recepción de parches de seguridad."
+ Text="AVISO: desactivar Windows Update puede impedir parches de seguridad. Úsalo únicamente cuando sea necesario."
 
- Foreground="#E2BD79"
+ Foreground="#E5BE78"
 
  TextWrapping="Wrap"/>
 
@@ -1572,7 +2657,7 @@ $Hardware =
 
 
 <TextBlock
- Text="PAUSA"
+ Text="PAUSAR ACTUALIZACIONES"
 
  Foreground="#4FD6FF"
 
@@ -1694,15 +2779,15 @@ $Hardware =
 
 
 <!-- ===================================================== -->
-<!-- BARRA INFERIOR -->
+<!-- FOOTER -->
 <!-- ===================================================== -->
 
 <Border
  Grid.Row="2"
 
- Background="#171A20"
+ Background="#151A21"
 
- BorderBrush="#303640"
+ BorderBrush="#2D3540"
 
  BorderThickness="0,1,0,0">
 
@@ -1719,12 +2804,56 @@ $Hardware =
 </Grid.RowDefinitions>
 
 
+<Grid>
+
+
+<Grid.ColumnDefinitions>
+
+<ColumnDefinition Width="*"/>
+
+<ColumnDefinition Width="Auto"/>
+
+</Grid.ColumnDefinitions>
+
+
 <TextBlock
  x:Name="StatusBar"
 
  Text="PUSI OPTI lista."
 
- Foreground="#B7BDC7"/>
+ Foreground="#B8C0CC"/>
+
+
+<StackPanel
+ Grid.Column="1"
+
+ Orientation="Horizontal">
+
+
+<TextBlock
+ x:Name="BackupStatus"
+
+ Text="BACKUP SESIÓN: NO"
+
+ Foreground="#8A95A5"
+
+ Margin="0,0,18,0"/>
+
+
+<TextBlock
+ x:Name="FooterRestart"
+
+ Text="REINICIO: NO"
+
+ Foreground="#63D89A"
+
+ FontWeight="Bold"/>
+
+
+</StackPanel>
+
+
+</Grid>
 
 
 <ProgressBar
@@ -1740,7 +2869,7 @@ $Hardware =
 
  Value="0"
 
- Margin="0,7,0,0"/>
+ Margin="0,8,0,0"/>
 
 
 </Grid>
@@ -1758,7 +2887,7 @@ $Hardware =
 
 
 # ============================================================
-# CARGAR VENTANA
+# CARGAR XAML
 # ============================================================
 
 $Reader =
@@ -1769,40 +2898,49 @@ $Window =
     [Windows.Markup.XamlReader]::Load($Reader)
 
 
-$StatusBar =
-    $Window.FindName("StatusBar")
+function C {
 
+    param(
+        [string]$Name
+    )
+
+    return $Window.FindName($Name)
+}
+
+
+$StatusBar =
+    C "StatusBar"
 
 $Progress =
-    $Window.FindName("Progress")
-
-
-$SelectedCount =
-    $Window.FindName("SelectedCount")
-
-
-$RestartCount =
-    $Window.FindName("RestartCount")
+    C "Progress"
 
 
 # ============================================================
-# HARDWARE EN HEADER
+# HARDWARE
 # ============================================================
 
-$Window.FindName("InfoCPU").Text =
+$Hardware =
+    Get-PusiHardware
+
+
+(C "HeaderCPU").Text =
     "CPU: $($Hardware.CPU)"
 
 
-$Window.FindName("InfoGPU").Text =
+(C "HeaderGPU").Text =
     "GPU: $($Hardware.GPU)"
 
 
-$Window.FindName("InfoSistema").Text =
-    "$($Hardware.Windows) | $($Hardware.RAM) RAM | $($Hardware.Tipo)"
+(C "HeaderRAM").Text =
+    "RAM: $($Hardware.RAM) @ $($Hardware.RAMSpeed) | $($Hardware.Tipo)"
+
+
+(C "HeaderWindows").Text =
+    "$($Hardware.Windows) | Build $($Hardware.Build)"
 
 
 # ============================================================
-# CHECKBOXES
+# OPCIONES
 # ============================================================
 
 $Options = @(
@@ -1815,7 +2953,7 @@ $Options = @(
 
     "OptConsumerFeatures",
 
-    "OptDeliveryOptimization",
+    "OptDelivery",
 
     "OptSearchWeb",
 
@@ -1823,7 +2961,7 @@ $Options = @(
 
     "OptGameDVR",
 
-    "OptDeepCleanup",
+    "OptDeepClean",
 
     "OptGameMode",
 
@@ -1837,9 +2975,9 @@ $Options = @(
 
     "OptTaskbarAnimations",
 
-    "OptVisualEffects",
+    "OptVisualPerformance",
 
-    "OptFileExtensions",
+    "OptExtensions",
 
     "OptHiddenFiles",
 
@@ -1859,33 +2997,29 @@ $Options = @(
 
 $RestartOptions = @(
 
-    "OptPowerThrottling",
-
     "OptGameDVR",
 
-    "OptLongPaths",
+    "OptPowerThrottling",
 
-    "OptBackgroundApps"
+    "OptBackgroundApps",
+
+    "OptLongPaths"
 )
 
 
 # ============================================================
-# CONTADORES
+# CONTADOR
 # ============================================================
 
-function Update-SelectionCounter {
+function Update-PusiSelectionCounter {
 
     $Selected = 0
-    $Restart = 0
+    $Restart  = 0
 
 
     foreach ($Name in $Options) {
 
-        $Control =
-            $Window.FindName($Name)
-
-
-        if ($Control.IsChecked) {
+        if ((C $Name).IsChecked) {
 
             $Selected++
 
@@ -1898,151 +3032,230 @@ function Update-SelectionCounter {
     }
 
 
-    $SelectedCount.Text =
+    (C "HeaderSelection").Text =
         "$Selected ajustes seleccionados"
 
 
-    $RestartCount.Text =
-        "$Restart requieren reinicio"
+    (C "SelectionInfo").Text =
+        "$Selected ajustes seleccionados | $Restart pueden requerir reinicio"
 }
 
 
 foreach ($Name in $Options) {
 
-    $Control =
-        $Window.FindName($Name)
+    (C $Name).Add_Checked({
 
-
-    $Control.Add_Checked({
-
-        Update-SelectionCounter
+        Update-PusiSelectionCounter
     })
 
 
-    $Control.Add_Unchecked({
+    (C $Name).Add_Unchecked({
 
-        Update-SelectionCounter
+        Update-PusiSelectionCounter
     })
 }
 
 
 # ============================================================
-# ESTADO REAL
+# ESTADO DE REINICIO
 # ============================================================
 
-function Update-PusiState {
+function Update-PusiRestartIndicator {
+
+    $Pending =
+        Test-PusiPendingRestart
+
+
+    if ($Pending -or $script:NeedsRestart) {
+
+        (C "HeaderRestart").Text =
+            "REINICIO: PENDIENTE"
+
+        (C "HeaderRestart").Foreground =
+            "#E5A64B"
+
+
+        (C "FooterRestart").Text =
+            "REINICIO: PENDIENTE"
+
+        (C "FooterRestart").Foreground =
+            "#E5A64B"
+    }
+    else {
+
+        (C "HeaderRestart").Text =
+            "REINICIO: NO"
+
+        (C "HeaderRestart").Foreground =
+            "#63D89A"
+
+
+        (C "FooterRestart").Text =
+            "REINICIO: NO"
+
+        (C "FooterRestart").Foreground =
+            "#63D89A"
+    }
+}
+
+
+# ============================================================
+# ACTUALIZAR RESUMEN
+# ============================================================
+
+function Update-PusiSummary {
 
     $StatusBar.Text =
-        "Leyendo configuración actual..."
+        "Actualizando estado del equipo..."
 
-
-    # GAME MODE
 
     $GameMode =
-        Get-RegValue `
-            "HKCU:\Software\Microsoft\GameBar" `
-            "AutoGameModeEnabled"
+        (
+            Get-PusiRegValue `
+                "HKCU:\Software\Microsoft\GameBar" `
+                "AutoGameModeEnabled"
+        ) -eq 1
 
 
-    $Window.FindName("OptGameMode").IsChecked =
-        ($GameMode -eq 1)
+    $GameDVR =
+        (
+            Get-PusiRegValue `
+                "HKCU:\System\GameConfigStore" `
+                "GameDVR_Enabled"
+        ) -ne 0
 
 
-    # GAME DVR
-
-    $DVR =
-        Get-RegValue `
-            "HKCU:\System\GameConfigStore" `
-            "GameDVR_Enabled"
-
-
-    $Window.FindName("OptGameDVR").IsChecked =
-        ($DVR -eq 0)
+    $PowerThrottleOff =
+        (
+            Get-PusiRegValue `
+                "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
+                "PowerThrottlingOff"
+        ) -eq 1
 
 
-    # POWER THROTTLING
+    if ($GameMode) {
 
-    $PT =
-        Get-RegValue `
-            "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
-            "PowerThrottlingOff"
+        (C "SummaryGameMode").Text =
+            "ACTIVO"
 
+        (C "SummaryGameMode").Foreground =
+            "#63D89A"
+    }
+    else {
 
-    $Window.FindName("OptPowerThrottling").IsChecked =
-        ($PT -eq 1)
+        (C "SummaryGameMode").Text =
+            "INACTIVO"
 
-
-    # FILE EXTENSIONS
-
-    $Extensions =
-        Get-RegValue `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "HideFileExt"
+        (C "SummaryGameMode").Foreground =
+            "#E5A64B"
+    }
 
 
-    $Window.FindName("OptFileExtensions").IsChecked =
-        ($Extensions -eq 0)
+    if ($GameDVR) {
+
+        (C "SummaryGameDVR").Text =
+            "ACTIVO"
+
+        (C "SummaryGameDVR").Foreground =
+            "#E5A64B"
+    }
+    else {
+
+        (C "SummaryGameDVR").Text =
+            "DESACTIVADO"
+
+        (C "SummaryGameDVR").Foreground =
+            "#63D89A"
+    }
 
 
-    # HIDDEN FILES
+    if ($PowerThrottleOff) {
 
-    $Hidden =
-        Get-RegValue `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "Hidden"
+        (C "SummaryPowerThrottling").Text =
+            "DESACTIVADO"
 
+        (C "SummaryPowerThrottling").Foreground =
+            "#63D89A"
+    }
+    else {
 
-    $Window.FindName("OptHiddenFiles").IsChecked =
-        ($Hidden -eq 1)
+        (C "SummaryPowerThrottling").Text =
+            "ACTIVO"
 
-
-    # SEARCH
-
-    $Search =
-        Get-RegValue `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
-            "SearchboxTaskbarMode"
+        (C "SummaryPowerThrottling").Foreground =
+            "#E5A64B"
+    }
 
 
-    $Window.FindName("OptTaskbarSearch").IsChecked =
-        ($Search -eq 0)
+    if (Test-PusiTrim) {
+
+        (C "SummaryTrim").Text =
+            "ACTIVO"
+
+        (C "SummaryTrim").Foreground =
+            "#63D89A"
+    }
+    else {
+
+        (C "SummaryTrim").Text =
+            "REVISAR"
+
+        (C "SummaryTrim").Foreground =
+            "#E5A64B"
+    }
 
 
-    # TASK VIEW
-
-    $TaskView =
-        Get-RegValue `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "ShowTaskViewButton"
+    $Plan =
+        Get-PusiActivePowerPlan
 
 
-    $Window.FindName("OptTaskView").IsChecked =
-        ($TaskView -eq 0)
+    (C "SummaryPowerPlan").Text =
+        $Plan
 
 
-    # TRANSPARENCY
-
-    $Transparency =
-        Get-RegValue `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
-            "EnableTransparency"
+    (C "PowerPlanText").Text =
+        "Plan actual: $Plan"
 
 
-    $Window.FindName("OptTransparency").IsChecked =
-        ($Transparency -eq 0)
+    $Storage =
+        Get-PusiStorageInfo
 
 
-    # POWER PLAN
+    if ($Storage) {
 
-    $Power =
-        powercfg /getactivescheme
+        (C "SummaryStorage").Text =
+            "$($Storage.FreeGB) GB libres ($($Storage.PercentFree)%)"
+    }
+    else {
+
+        (C "SummaryStorage").Text =
+            "No disponible"
+    }
 
 
-    $Window.FindName("PowerPlanState").Text =
-        "Plan actual: $Power"
+    if (Test-PusiPendingRestart) {
+
+        (C "SummaryRestart").Text =
+            "SÍ"
+
+        (C "SummaryRestart").Foreground =
+            "#E5A64B"
+    }
+    else {
+
+        (C "SummaryRestart").Text =
+            "NO"
+
+        (C "SummaryRestart").Foreground =
+            "#63D89A"
+    }
 
 
-    Update-SelectionCounter
+    (C "SummaryType").Text =
+        $Hardware.Tipo
+
+
+    Update-PusiRestartIndicator
 
 
     $StatusBar.Text =
@@ -2050,9 +3263,409 @@ function Update-PusiState {
 }
 
 
-$Window.FindName("RefreshState").Add_Click({
+# ============================================================
+# ANALISIS PUSI
+# ============================================================
 
-    Update-PusiState
+function Invoke-PusiAnalysis {
+
+    (C "AnalysisList").Items.Clear()
+
+
+    $Good = 0
+    $Recommended = 0
+    $Warnings = 0
+
+
+    function Add-Good {
+
+        param(
+            [string]$Text
+        )
+
+        (C "AnalysisList").Items.Add(
+            "✓ $Text"
+        ) |
+        Out-Null
+
+        $script:_Good++
+    }
+
+
+    function Add-Recommendation {
+
+        param(
+            [string]$Text
+        )
+
+        (C "AnalysisList").Items.Add(
+            "! $Text"
+        ) |
+        Out-Null
+
+        $script:_Recommended++
+    }
+
+
+    function Add-Warning {
+
+        param(
+            [string]$Text
+        )
+
+        (C "AnalysisList").Items.Add(
+            "⚠ $Text"
+        ) |
+        Out-Null
+
+        $script:_Warnings++
+    }
+
+
+    $script:_Good = 0
+    $script:_Recommended = 0
+    $script:_Warnings = 0
+
+
+    $GameMode =
+        (
+            Get-PusiRegValue `
+                "HKCU:\Software\Microsoft\GameBar" `
+                "AutoGameModeEnabled"
+        ) -eq 1
+
+
+    if ($GameMode) {
+
+        Add-Good "Game Mode está activo."
+    }
+    else {
+
+        Add-Recommendation "Game Mode está desactivado."
+    }
+
+
+    $DVR =
+        (
+            Get-PusiRegValue `
+                "HKCU:\System\GameConfigStore" `
+                "GameDVR_Enabled"
+        ) -ne 0
+
+
+    if (-not $DVR) {
+
+        Add-Good "Game DVR está desactivado."
+    }
+    else {
+
+        Add-Recommendation "Game DVR está activo."
+    }
+
+
+    $Plan =
+        Get-PusiActivePowerPlan
+
+
+    if ($Plan -eq "Plan energia Pusi") {
+
+        Add-Good "Plan energia Pusi está activo."
+    }
+    else {
+
+        Add-Recommendation "El plan actual es '$Plan'."
+    }
+
+
+    if (Test-PusiTrim) {
+
+        Add-Good "TRIM está habilitado."
+    }
+    else {
+
+        Add-Warning "No se pudo confirmar TRIM."
+    }
+
+
+    $Storage =
+        Get-PusiStorageInfo
+
+
+    if ($Storage) {
+
+        if ($Storage.PercentFree -lt 10) {
+
+            Add-Warning "La unidad C: tiene solo $($Storage.FreeGB) GB libres."
+        }
+        elseif ($Storage.PercentFree -lt 20) {
+
+            Add-Recommendation "Conviene liberar espacio en C:. Queda $($Storage.PercentFree)%."
+        }
+        else {
+
+            Add-Good "Espacio libre en C: correcto."
+        }
+    }
+
+
+    if (Test-PusiPendingRestart) {
+
+        Add-Recommendation "Windows tiene un reinicio pendiente."
+    }
+    else {
+
+        Add-Good "No hay reinicio pendiente detectado."
+    }
+
+
+    $SpeedNumber = 0
+
+    [int]::TryParse(
+        (
+            $Hardware.RAMSpeed `
+                -replace '[^\d]',
+            ''
+        ),
+        [ref]$SpeedNumber
+    ) |
+    Out-Null
+
+
+    if (
+        $SpeedNumber -gt 0 -and
+        $SpeedNumber -le 2400
+    ) {
+
+        Add-Recommendation "RAM configurada a $($Hardware.RAMSpeed). Conviene comprobar XMP / EXPO en BIOS."
+    }
+    else {
+
+        Add-Good "RAM detectada a $($Hardware.RAMSpeed)."
+    }
+
+
+    if ($Hardware.Tipo -eq "PORTÁTIL") {
+
+        Add-Recommendation "Portátil detectado: evitar perfiles de energía agresivos cuando se use batería."
+    }
+
+
+    (C "AnalysisTotals").Text =
+        "$script:_Good correctos | $script:_Recommended recomendados | $script:_Warnings avisos"
+
+
+    $StatusBar.Text =
+        "Análisis PUSI terminado."
+}
+
+
+# ============================================================
+# INFORME
+# ============================================================
+
+function Get-PusiReport {
+
+    $Snapshot =
+        Get-PusiSnapshot
+
+
+    $Lines = @(
+
+        "PUSI OPTI - INFORME",
+
+        "Versión: $script:PusiVersion",
+
+        "",
+
+        "SISTEMA",
+
+        "Windows: $($Hardware.Windows)",
+
+        "Build: $($Hardware.Build)",
+
+        "CPU: $($Hardware.CPU)",
+
+        "GPU: $($Hardware.GPU)",
+
+        "RAM: $($Hardware.RAM) @ $($Hardware.RAMSpeed)",
+
+        "Tipo: $($Hardware.Tipo)",
+
+        "",
+
+        "ESTADO",
+
+        "Procesos: $($Snapshot.Procesos)",
+
+        "RAM usada: $($Snapshot.RAMUsada) GB",
+
+        "Plan de energía: $($Snapshot.PlanEnergia)",
+
+        "Game Mode: $(if($Snapshot.GameMode){'ACTIVO'}else{'INACTIVO'})",
+
+        "Game DVR: $(if($Snapshot.GameDVR){'ACTIVO'}else{'DESACTIVADO'})",
+
+        "Power Throttling: $(if($Snapshot.PowerThrottlingOff){'DESACTIVADO'}else{'ACTIVO'})",
+
+        "TRIM: $(if($Snapshot.Trim){'ACTIVO'}else{'NO CONFIRMADO'})",
+
+        "Espacio libre C: $($Snapshot.FreeSpace) GB",
+
+        "Reinicio pendiente: $(if($Snapshot.Reinicio){'SÍ'}else{'NO'})",
+
+        "",
+
+        "PUSI OPTI"
+    )
+
+
+    return (
+        $Lines -join "`r`n"
+    )
+}
+
+
+# ============================================================
+# GUARDAR ANTES
+# ============================================================
+
+(C "SaveInitialState").Add_Click({
+
+    $script:InitialSnapshot =
+        Get-PusiSnapshot
+
+
+    (C "BeforeProcesses").Text =
+        "$($script:InitialSnapshot.Procesos)"
+
+
+    (C "BeforeRAM").Text =
+        "$($script:InitialSnapshot.RAMUsada) GB"
+
+
+    (C "BeforePower").Text =
+        "$($script:InitialSnapshot.PlanEnergia)"
+
+
+    (C "BeforeDVR").Text =
+        if ($script:InitialSnapshot.GameDVR) {
+            "ACTIVO"
+        }
+        else {
+            "DESACTIVADO"
+        }
+
+
+    (C "BeforeStorage").Text =
+        "$($script:InitialSnapshot.FreeSpace) GB"
+
+
+    $StatusBar.Text =
+        "Estado inicial guardado."
+})
+
+
+# ============================================================
+# COMPARAR
+# ============================================================
+
+(C "CompareState").Add_Click({
+
+    if (-not $script:InitialSnapshot) {
+
+        [System.Windows.MessageBox]::Show(
+            "Primero pulsa GUARDAR ESTADO INICIAL.",
+            "PUSI OPTI",
+            "OK",
+            "Information"
+        )
+
+        return
+    }
+
+
+    $script:LastSnapshot =
+        Get-PusiSnapshot
+
+
+    (C "AfterProcesses").Text =
+        "$($script:LastSnapshot.Procesos)"
+
+
+    (C "AfterRAM").Text =
+        "$($script:LastSnapshot.RAMUsada) GB"
+
+
+    (C "AfterPower").Text =
+        "$($script:LastSnapshot.PlanEnergia)"
+
+
+    (C "AfterDVR").Text =
+        if ($script:LastSnapshot.GameDVR) {
+            "ACTIVO"
+        }
+        else {
+            "DESACTIVADO"
+        }
+
+
+    (C "AfterStorage").Text =
+        "$($script:LastSnapshot.FreeSpace) GB"
+
+
+    $StatusBar.Text =
+        "Comparación actualizada."
+})
+
+
+# ============================================================
+# ANALIZAR
+# ============================================================
+
+(C "AnalyzePC").Add_Click({
+
+    Invoke-PusiAnalysis
+
+    Update-PusiSummary
+})
+
+
+# ============================================================
+# COPIAR INFORME
+# ============================================================
+
+(C "CopyReport").Add_Click({
+
+    $Report =
+        Get-PusiReport
+
+
+    Set-Clipboard `
+        -Value $Report
+
+
+    $StatusBar.Text =
+        "Informe copiado al portapapeles."
+
+
+    [System.Windows.MessageBox]::Show(
+        "Informe PUSI copiado al portapapeles.",
+        "PUSI OPTI",
+        "OK",
+        "Information"
+    )
+})
+
+
+# ============================================================
+# REFRESH
+# ============================================================
+
+(C "RefreshAll").Add_Click({
+
+    Update-PusiSummary
+
+    Invoke-PusiAnalysis
 })
 
 
@@ -2060,28 +3673,28 @@ $Window.FindName("RefreshState").Add_Click({
 # PRESETS
 # ============================================================
 
-function Clear-All {
+function Clear-PusiSelection {
 
     foreach ($Name in $Options) {
 
-        $Window.FindName($Name).IsChecked =
+        (C $Name).IsChecked =
             $false
     }
 }
 
 
-$Window.FindName("ClearSelection").Add_Click({
+(C "ClearSelection").Add_Click({
 
-    Clear-All
+    Clear-PusiSelection
 
     $StatusBar.Text =
         "Selección limpiada."
 })
 
 
-$Window.FindName("PresetSeguro").Add_Click({
+(C "PresetSafe").Add_Click({
 
-    Clear-All
+    Clear-PusiSelection
 
 
     @(
@@ -2094,24 +3707,23 @@ $Window.FindName("PresetSeguro").Add_Click({
 
         "OptWidgets",
 
-        "OptFileExtensions",
-
         "OptAnimations",
 
-        "OptTransparency"
+        "OptTransparency",
 
+        "OptExtensions"
     ) |
     ForEach-Object {
 
-        $Window.FindName($_).IsChecked =
+        (C $_).IsChecked =
             $true
     }
 })
 
 
-$Window.FindName("PresetRecomendado").Add_Click({
+(C "PresetRecommended").Add_Click({
 
-    Clear-All
+    Clear-PusiSelection
 
 
     @(
@@ -2124,7 +3736,7 @@ $Window.FindName("PresetRecomendado").Add_Click({
 
         "OptConsumerFeatures",
 
-        "OptDeliveryOptimization",
+        "OptDelivery",
 
         "OptSearchWeb",
 
@@ -2134,7 +3746,7 @@ $Window.FindName("PresetRecomendado").Add_Click({
 
         "OptGameMode",
 
-        "OptFileExtensions",
+        "OptExtensions",
 
         "OptMouseAcceleration",
 
@@ -2143,19 +3755,18 @@ $Window.FindName("PresetRecomendado").Add_Click({
         "OptTaskbarSearch",
 
         "OptStartRecommendations"
-
     ) |
     ForEach-Object {
 
-        $Window.FindName($_).IsChecked =
+        (C $_).IsChecked =
             $true
     }
 })
 
 
-$Window.FindName("PresetGaming").Add_Click({
+(C "PresetGaming").Add_Click({
 
-    Clear-All
+    Clear-PusiSelection
 
 
     @(
@@ -2168,7 +3779,7 @@ $Window.FindName("PresetGaming").Add_Click({
 
         "OptConsumerFeatures",
 
-        "OptDeliveryOptimization",
+        "OptDelivery",
 
         "OptSearchWeb",
 
@@ -2188,7 +3799,7 @@ $Window.FindName("PresetGaming").Add_Click({
 
         "OptTaskbarAnimations",
 
-        "OptVisualEffects",
+        "OptVisualPerformance",
 
         "OptMouseAcceleration",
 
@@ -2199,40 +3810,83 @@ $Window.FindName("PresetGaming").Add_Click({
         "OptTaskView",
 
         "OptStartRecommendations"
-
     ) |
     ForEach-Object {
 
-        $Window.FindName($_).IsChecked =
+        (C $_).IsChecked =
             $true
     }
 })
 
 
-$Window.FindName("PresetAgresivo").Add_Click({
+(C "PresetAggressive").Add_Click({
 
     foreach ($Name in $Options) {
 
-        if ($Name -ne "OptDeepCleanup") {
+        if (
+            $Name -ne "OptRestorePoint" -and
+            $Name -ne "OptDeepClean"
+        ) {
 
-            $Window.FindName($Name).IsChecked =
+            (C $Name).IsChecked =
                 $true
+        }
+    }
+
+
+    (C "OptRestorePoint").IsChecked =
+        $true
+})
+
+
+# ============================================================
+# BUSCADOR DE TWEAKS
+# ============================================================
+
+(C "SearchTweaks").Add_TextChanged({
+
+    $Search =
+        (C "SearchTweaks").Text.Trim().ToLower()
+
+
+    foreach ($Name in $Options) {
+
+        $Control =
+            C $Name
+
+
+        $Text =
+            $Control.Content.ToString().ToLower()
+
+
+        if (
+            [string]::IsNullOrWhiteSpace($Search) -or
+            $Text.Contains($Search)
+        ) {
+
+            $Control.Visibility =
+                "Visible"
+        }
+        else {
+
+            $Control.Visibility =
+                "Collapsed"
         }
     }
 })
 
 
 # ============================================================
-# PLAN PUSI
+# PLAN ENERGIA PUSI
 # ============================================================
 
-$Window.FindName("EnablePusiPower").Add_Click({
+(C "EnablePusiPower").Add_Click({
 
     if ($Hardware.Tipo -eq "PORTÁTIL") {
 
         $Answer =
             [System.Windows.MessageBox]::Show(
-                "Se ha detectado un portátil.`n`nPlan energia Pusi está orientado a sobremesa y puede aumentar consumo y temperatura.`n`n¿Continuar?",
+                "Se ha detectado un portátil.`n`nPlan energia Pusi está orientado a máximo rendimiento y puede aumentar consumo y temperatura.`n`n¿Continuar?",
                 "PUSI OPTI",
                 "YesNo",
                 "Warning"
@@ -2254,23 +3908,23 @@ $Window.FindName("EnablePusiPower").Add_Click({
 
         $StatusBar.Text =
             "Plan energia Pusi activado."
-
-        Add-PusiResult "OK"
     }
     else {
 
-        $StatusBar.Text =
-            "No se pudo activar el plan."
-
-        Add-PusiResult "ERROR"
+        [System.Windows.MessageBox]::Show(
+            "No se pudo importar o activar Plan energia Pusi.`n`nComprueba que Bitsum-Highest-Performance.pow está en la raíz de tu repositorio.",
+            "PUSI OPTI",
+            "OK",
+            "Error"
+        )
     }
 
 
-    Update-PusiState
+    Update-PusiSummary
 })
 
 
-$Window.FindName("EnableBalanced").Add_Click({
+(C "EnableBalanced").Add_Click({
 
     powercfg /setactive SCHEME_BALANCED |
         Out-Null
@@ -2280,28 +3934,269 @@ $Window.FindName("EnableBalanced").Add_Click({
         "Plan Equilibrado activado."
 
 
-    Update-PusiState
+    Update-PusiSummary
 })
+
+
+# ============================================================
+# PREPARAR BACKUP
+# ============================================================
+
+function Backup-PusiSelectedSettings {
+
+
+    if ((C "OptTelemetry").IsChecked) {
+
+        Backup-PusiRegValue `
+            "Telemetry" `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
+            "AllowTelemetry"
+    }
+
+
+    if ((C "OptActivityHistory").IsChecked) {
+
+        Backup-PusiRegValue `
+            "ActivityFeed" `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+            "EnableActivityFeed"
+
+
+        Backup-PusiRegValue `
+            "PublishActivities" `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+            "PublishUserActivities"
+    }
+
+
+    if ((C "OptConsumerFeatures").IsChecked) {
+
+        Backup-PusiRegValue `
+            "ConsumerFeatures" `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" `
+            "DisableWindowsConsumerFeatures"
+    }
+
+
+    if ((C "OptDelivery").IsChecked) {
+
+        Backup-PusiRegValue `
+            "DeliveryMode" `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" `
+            "DODownloadMode"
+    }
+
+
+    if ((C "OptSearchWeb").IsChecked) {
+
+        Backup-PusiRegValue `
+            "SearchWeb" `
+            "HKCU:\Software\Policies\Microsoft\Windows\Explorer" `
+            "DisableSearchBoxSuggestions"
+    }
+
+
+    if ((C "OptWidgets").IsChecked) {
+
+        Backup-PusiRegValue `
+            "Widgets" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "TaskbarDa"
+    }
+
+
+    if ((C "OptGameDVR").IsChecked) {
+
+        Backup-PusiRegValue `
+            "GameDVR" `
+            "HKCU:\System\GameConfigStore" `
+            "GameDVR_Enabled"
+
+
+        Backup-PusiRegValue `
+            "AppCapture" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" `
+            "AppCaptureEnabled"
+    }
+
+
+    if ((C "OptGameMode").IsChecked) {
+
+        Backup-PusiRegValue `
+            "GameMode" `
+            "HKCU:\Software\Microsoft\GameBar" `
+            "AutoGameModeEnabled"
+    }
+
+
+    if ((C "OptPowerThrottling").IsChecked) {
+
+        Backup-PusiRegValue `
+            "PowerThrottling" `
+            "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
+            "PowerThrottlingOff"
+    }
+
+
+    if ((C "OptBackgroundApps").IsChecked) {
+
+        Backup-PusiRegValue `
+            "BackgroundApps" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
+            "GlobalUserDisabled"
+    }
+
+
+    if ((C "OptAnimations").IsChecked) {
+
+        Backup-PusiRegValue `
+            "Animations" `
+            "HKCU:\Control Panel\Desktop\WindowMetrics" `
+            "MinAnimate"
+    }
+
+
+    if ((C "OptTransparency").IsChecked) {
+
+        Backup-PusiRegValue `
+            "Transparency" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
+            "EnableTransparency"
+    }
+
+
+    if ((C "OptTaskbarAnimations").IsChecked) {
+
+        Backup-PusiRegValue `
+            "TaskbarAnimations" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "TaskbarAnimations"
+    }
+
+
+    if ((C "OptVisualPerformance").IsChecked) {
+
+        Backup-PusiRegValue `
+            "VisualPerformance" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
+            "VisualFXSetting"
+    }
+
+
+    if ((C "OptExtensions").IsChecked) {
+
+        Backup-PusiRegValue `
+            "Extensions" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "HideFileExt"
+    }
+
+
+    if ((C "OptHiddenFiles").IsChecked) {
+
+        Backup-PusiRegValue `
+            "HiddenFiles" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "Hidden"
+    }
+
+
+    if ((C "OptLongPaths").IsChecked) {
+
+        Backup-PusiRegValue `
+            "LongPaths" `
+            "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            "LongPathsEnabled"
+    }
+
+
+    if ((C "OptMouseAcceleration").IsChecked) {
+
+        Backup-PusiRegValue `
+            "MouseSpeed" `
+            "HKCU:\Control Panel\Mouse" `
+            "MouseSpeed"
+
+
+        Backup-PusiRegValue `
+            "MouseThreshold1" `
+            "HKCU:\Control Panel\Mouse" `
+            "MouseThreshold1"
+
+
+        Backup-PusiRegValue `
+            "MouseThreshold2" `
+            "HKCU:\Control Panel\Mouse" `
+            "MouseThreshold2"
+    }
+
+
+    if ((C "OptStickyKeys").IsChecked) {
+
+        Backup-PusiRegValue `
+            "StickyKeys" `
+            "HKCU:\Control Panel\Accessibility\StickyKeys" `
+            "Flags"
+    }
+
+
+    if ((C "OptTaskbarSearch").IsChecked) {
+
+        Backup-PusiRegValue `
+            "TaskbarSearch" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
+            "SearchboxTaskbarMode"
+    }
+
+
+    if ((C "OptTaskView").IsChecked) {
+
+        Backup-PusiRegValue `
+            "TaskView" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "ShowTaskViewButton"
+    }
+
+
+    if ((C "OptStartRecommendations").IsChecked) {
+
+        Backup-PusiRegValue `
+            "StartRecommendations" `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "Start_IrisRecommendations"
+    }
+
+
+    if ($script:SessionBackup.Count -gt 0) {
+
+        (C "BackupStatus").Text =
+            "BACKUP SESIÓN: OK"
+
+        (C "BackupStatus").Foreground =
+            "#63D89A"
+    }
+}
 
 
 # ============================================================
 # APLICAR
 # ============================================================
 
-$Window.FindName("ApplySelected").Add_Click({
+(C "ApplySelected").Add_Click({
 
-    $SelectedNames =
-        $Options |
-        Where-Object {
+    $Selected =
+        @(
+            $Options |
+            Where-Object {
+                (C $_).IsChecked
+            }
+        )
 
-            $Window.FindName($_).IsChecked
-        }
 
-
-    if ($SelectedNames.Count -eq 0) {
+    if ($Selected.Count -eq 0) {
 
         [System.Windows.MessageBox]::Show(
-            "No hay ningún ajuste seleccionado.",
+            "No hay ajustes seleccionados.",
             "PUSI OPTI",
             "OK",
             "Information"
@@ -2311,57 +4206,88 @@ $Window.FindName("ApplySelected").Add_Click({
     }
 
 
-    $RestartSelected =
-        $SelectedNames |
+    $AggressiveSelected =
+        @(
+            "OptPowerThrottling",
+            "OptBackgroundApps",
+            "OptVisualPerformance"
+        ) |
         Where-Object {
+            (C $_).IsChecked
+        }
 
+
+    $RestartSelected =
+        $Selected |
+        Where-Object {
             $RestartOptions -contains $_
         }
 
 
-    $Confirmation =
+    $Message =
+        "Se aplicarán $($Selected.Count) ajustes.`n`n"
+
+
+    if ($AggressiveSelected.Count -gt 0) {
+
+        $Message +=
+            "Ajustes agresivos: $($AggressiveSelected.Count)`n"
+    }
+
+
+    $Message +=
+        "Pueden requerir reinicio: $($RestartSelected.Count)`n`n¿Continuar?"
+
+
+    $Confirm =
         [System.Windows.MessageBox]::Show(
-            "Se aplicarán $($SelectedNames.Count) ajustes.`n`n$($RestartSelected.Count) pueden requerir reiniciar Windows.`n`n¿Continuar?",
-            "PUSI OPTI - Confirmar optimización",
+            $Message,
+            "PUSI OPTI - Confirmar",
             "YesNo",
             "Question"
         )
 
 
-    if ($Confirmation -ne "Yes") {
+    if ($Confirm -ne "Yes") {
 
         return
     }
 
 
-    $script:ResultadosOK = 0
-    $script:ResultadosError = 0
-    $script:ResultadosOmitidos = 0
+    Reset-PusiResults
+
+    Backup-PusiSelectedSettings
 
 
     $Progress.Value = 0
 
+    $Current =
+        0
+
 
     $Total =
-        $SelectedNames.Count
+        $Selected.Count
 
 
-    $Current = 0
-
-
-    function Step {
+    function Pusi-Step {
 
         param(
-            [string]$Message
+            [string]$Text
         )
 
-        $script:Current++
+        $script:_CurrentStep++
+
 
         $Progress.Value =
-            ($script:Current / $Total) * 100
+            (
+                $script:_CurrentStep /
+                $Total
+            ) * 100
+
 
         $StatusBar.Text =
-            $Message
+            $Text
+
 
         $Window.Dispatcher.Invoke(
             [action]{},
@@ -2370,12 +4296,18 @@ $Window.FindName("ApplySelected").Add_Click({
     }
 
 
-    $script:Current = 0
+    $script:_CurrentStep = 0
+    $Freed = $null
 
 
-    if ($Window.FindName("OptRestorePoint").IsChecked) {
+    # --------------------------------------------------------
+    # RESTORE POINT
+    # --------------------------------------------------------
 
-        Step "Creando punto de restauración..."
+    if ((C "OptRestorePoint").IsChecked) {
+
+        Pusi-Step "Creando punto de restauración..."
+
 
         if (New-PusiRestorePoint) {
 
@@ -2388,12 +4320,17 @@ $Window.FindName("ApplySelected").Add_Click({
     }
 
 
-    if ($Window.FindName("OptTelemetry").IsChecked) {
+    # --------------------------------------------------------
+    # TELEMETRIA
+    # --------------------------------------------------------
 
-        Step "Desactivando telemetría..."
+    if ((C "OptTelemetry").IsChecked) {
+
+        Pusi-Step "Desactivando telemetría..."
+
 
         if (
-            Set-RegDWORD `
+            Set-PusiDWORD `
                 "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
                 "AllowTelemetry" `
                 0
@@ -2408,561 +4345,811 @@ $Window.FindName("ApplySelected").Add_Click({
     }
 
 
-    if ($Window.FindName("OptActivityHistory").IsChecked) {
+    # --------------------------------------------------------
+    # ACTIVITY HISTORY
+    # --------------------------------------------------------
 
-        Step "Desactivando historial de actividad..."
+    if ((C "OptActivityHistory").IsChecked) {
 
-        Set-RegDWORD `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
-            "EnableActivityFeed" `
-            0 |
-            Out-Null
+        Pusi-Step "Desactivando historial de actividad..."
 
 
-        Set-RegDWORD `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
-            "PublishUserActivities" `
-            0 |
-            Out-Null
+        $A =
+            Set-PusiDWORD `
+                "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+                "EnableActivityFeed" `
+                0
 
 
-        Add-PusiResult "OK"
+        $B =
+            Set-PusiDWORD `
+                "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+                "PublishUserActivities" `
+                0
+
+
+        if ($A -and $B) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptConsumerFeatures").IsChecked) {
+    # --------------------------------------------------------
+    # CONSUMER FEATURES
+    # --------------------------------------------------------
 
-        Step "Desactivando contenido promocional..."
+    if ((C "OptConsumerFeatures").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" `
-            "DisableWindowsConsumerFeatures" `
-            1 |
-            Out-Null
+        Pusi-Step "Desactivando contenido promocional..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" `
+                "DisableWindowsConsumerFeatures" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptDeliveryOptimization").IsChecked) {
+    # --------------------------------------------------------
+    # DELIVERY
+    # --------------------------------------------------------
 
-        Step "Configurando Delivery Optimization..."
+    if ((C "OptDelivery").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" `
-            "DODownloadMode" `
-            0 |
-            Out-Null
+        Pusi-Step "Configurando Delivery Optimization..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" `
+                "DODownloadMode" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptSearchWeb").IsChecked) {
+    # --------------------------------------------------------
+    # SEARCH WEB
+    # --------------------------------------------------------
 
-        Step "Desactivando resultados web..."
+    if ((C "OptSearchWeb").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Policies\Microsoft\Windows\Explorer" `
-            "DisableSearchBoxSuggestions" `
-            1 |
-            Out-Null
+        Pusi-Step "Desactivando resultados web..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Policies\Microsoft\Windows\Explorer" `
+                "DisableSearchBoxSuggestions" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptWidgets").IsChecked) {
+    # --------------------------------------------------------
+    # WIDGETS
+    # --------------------------------------------------------
 
-        Step "Desactivando Widgets..."
+    if ((C "OptWidgets").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "TaskbarDa" `
-            0 |
-            Out-Null
+        Pusi-Step "Ocultando Widgets..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+                "TaskbarDa" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptGameDVR").IsChecked) {
+    # --------------------------------------------------------
+    # GAME DVR
+    # --------------------------------------------------------
 
-        Step "Desactivando Game DVR..."
+    if ((C "OptGameDVR").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\System\GameConfigStore" `
-            "GameDVR_Enabled" `
-            0 |
-            Out-Null
+        Pusi-Step "Desactivando Game DVR..."
 
 
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" `
-            "AppCaptureEnabled" `
-            0 |
-            Out-Null
+        $A =
+            Set-PusiDWORD `
+                "HKCU:\System\GameConfigStore" `
+                "GameDVR_Enabled" `
+                0
 
 
-        Add-PusiResult "OK"
+        $B =
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" `
+                "AppCaptureEnabled" `
+                0
+
+
+        if ($A -and $B) {
+
+            Add-PusiResult "OK"
+
+            $script:NeedsRestart =
+                $true
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptDeepCleanup").IsChecked) {
+    # --------------------------------------------------------
+    # CLEAN
+    # --------------------------------------------------------
 
-        Step "Ejecutando limpieza profunda..."
+    if ((C "OptDeepClean").IsChecked) {
+
+        Pusi-Step "Ejecutando limpieza profunda..."
 
 
         $Freed =
             Invoke-PusiDeepCleanup `
-                -StatusBar $StatusBar
+                -StatusControl $StatusBar
 
 
         Add-PusiResult "OK"
     }
 
 
-    if ($Window.FindName("OptGameMode").IsChecked) {
+    # --------------------------------------------------------
+    # GAME MODE
+    # --------------------------------------------------------
 
-        Step "Activando Game Mode..."
+    if ((C "OptGameMode").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\GameBar" `
-            "AutoGameModeEnabled" `
-            1 |
-            Out-Null
+        Pusi-Step "Activando Game Mode..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\GameBar" `
+                "AutoGameModeEnabled" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptPowerThrottling").IsChecked) {
+    # --------------------------------------------------------
+    # POWER THROTTLING
+    # --------------------------------------------------------
 
-        Step "Desactivando Power Throttling..."
+    if ((C "OptPowerThrottling").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
-            "PowerThrottlingOff" `
-            1 |
-            Out-Null
+        Pusi-Step "Desactivando Power Throttling..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
+                "PowerThrottlingOff" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+
+            $script:NeedsRestart =
+                $true
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptBackgroundApps").IsChecked) {
+    # --------------------------------------------------------
+    # BACKGROUND APPS
+    # --------------------------------------------------------
 
-        Step "Reduciendo aplicaciones en segundo plano..."
+    if ((C "OptBackgroundApps").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
-            "GlobalUserDisabled" `
-            1 |
-            Out-Null
+        Pusi-Step "Reduciendo aplicaciones en segundo plano..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
+                "GlobalUserDisabled" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+
+            $script:NeedsRestart =
+                $true
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptAnimations").IsChecked) {
+    # --------------------------------------------------------
+    # ANIMACIONES
+    # --------------------------------------------------------
 
-        Step "Desactivando animaciones..."
+    if ((C "OptAnimations").IsChecked) {
 
-
-        Set-RegString `
-            "HKCU:\Control Panel\Desktop\WindowMetrics" `
-            "MinAnimate" `
-            "0" |
-            Out-Null
+        Pusi-Step "Desactivando animaciones..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiString `
+                "HKCU:\Control Panel\Desktop\WindowMetrics" `
+                "MinAnimate" `
+                "0"
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptTransparency").IsChecked) {
+    # --------------------------------------------------------
+    # TRANSPARENCIA
+    # --------------------------------------------------------
 
-        Step "Desactivando transparencias..."
+    if ((C "OptTransparency").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
-            "EnableTransparency" `
-            0 |
-            Out-Null
+        Pusi-Step "Desactivando transparencias..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
+                "EnableTransparency" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptTaskbarAnimations").IsChecked) {
+    # --------------------------------------------------------
+    # TASKBAR ANIMATIONS
+    # --------------------------------------------------------
 
-        Step "Desactivando animaciones de barra..."
+    if ((C "OptTaskbarAnimations").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "TaskbarAnimations" `
-            0 |
-            Out-Null
+        Pusi-Step "Desactivando animaciones de barra..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+                "TaskbarAnimations" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptVisualEffects").IsChecked) {
+    # --------------------------------------------------------
+    # VISUAL PERFORMANCE
+    # --------------------------------------------------------
 
-        Step "Configurando efectos visuales..."
+    if ((C "OptVisualPerformance").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
-            "VisualFXSetting" `
-            2 |
-            Out-Null
+        Pusi-Step "Configurando efectos visuales..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
+                "VisualFXSetting" `
+                2
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptFileExtensions").IsChecked) {
+    # --------------------------------------------------------
+    # EXTENSIONES
+    # --------------------------------------------------------
 
-        Step "Mostrando extensiones..."
+    if ((C "OptExtensions").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "HideFileExt" `
-            0 |
-            Out-Null
+        Pusi-Step "Mostrando extensiones..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+                "HideFileExt" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptHiddenFiles").IsChecked) {
+    # --------------------------------------------------------
+    # OCULTOS
+    # --------------------------------------------------------
 
-        Step "Mostrando archivos ocultos..."
+    if ((C "OptHiddenFiles").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "Hidden" `
-            1 |
-            Out-Null
+        Pusi-Step "Mostrando archivos ocultos..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+                "Hidden" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptLongPaths").IsChecked) {
+    # --------------------------------------------------------
+    # LONG PATHS
+    # --------------------------------------------------------
 
-        Step "Activando rutas largas..."
+    if ((C "OptLongPaths").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
-            "LongPathsEnabled" `
-            1 |
-            Out-Null
+        Pusi-Step "Activando rutas largas..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+                "LongPathsEnabled" `
+                1
+        ) {
+
+            Add-PusiResult "OK"
+
+            $script:NeedsRestart =
+                $true
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptMouseAcceleration").IsChecked) {
+    # --------------------------------------------------------
+    # RATON
+    # --------------------------------------------------------
 
-        Step "Desactivando aceleración del ratón..."
+    if ((C "OptMouseAcceleration").IsChecked) {
 
-
-        Set-RegString `
-            "HKCU:\Control Panel\Mouse" `
-            "MouseSpeed" `
-            "0" |
-            Out-Null
+        Pusi-Step "Desactivando aceleración del ratón..."
 
 
-        Set-RegString `
-            "HKCU:\Control Panel\Mouse" `
-            "MouseThreshold1" `
-            "0" |
-            Out-Null
+        $A =
+            Set-PusiString `
+                "HKCU:\Control Panel\Mouse" `
+                "MouseSpeed" `
+                "0"
 
 
-        Set-RegString `
-            "HKCU:\Control Panel\Mouse" `
-            "MouseThreshold2" `
-            "0" |
-            Out-Null
+        $B =
+            Set-PusiString `
+                "HKCU:\Control Panel\Mouse" `
+                "MouseThreshold1" `
+                "0"
 
 
-        Add-PusiResult "OK"
+        $D =
+            Set-PusiString `
+                "HKCU:\Control Panel\Mouse" `
+                "MouseThreshold2" `
+                "0"
+
+
+        if ($A -and $B -and $D) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptStickyKeys").IsChecked) {
+    # --------------------------------------------------------
+    # STICKY KEYS
+    # --------------------------------------------------------
 
-        Step "Configurando Sticky Keys..."
+    if ((C "OptStickyKeys").IsChecked) {
 
-
-        Set-RegString `
-            "HKCU:\Control Panel\Accessibility\StickyKeys" `
-            "Flags" `
-            "506" |
-            Out-Null
+        Pusi-Step "Configurando Sticky Keys..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiString `
+                "HKCU:\Control Panel\Accessibility\StickyKeys" `
+                "Flags" `
+                "506"
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptTaskbarSearch").IsChecked) {
+    # --------------------------------------------------------
+    # SEARCH TASKBAR
+    # --------------------------------------------------------
 
-        Step "Ocultando búsqueda..."
+    if ((C "OptTaskbarSearch").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
-            "SearchboxTaskbarMode" `
-            0 |
-            Out-Null
+        Pusi-Step "Ocultando búsqueda de barra..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
+                "SearchboxTaskbarMode" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptTaskView").IsChecked) {
+    # --------------------------------------------------------
+    # TASK VIEW
+    # --------------------------------------------------------
 
-        Step "Ocultando Vista de tareas..."
+    if ((C "OptTaskView").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "ShowTaskViewButton" `
-            0 |
-            Out-Null
+        Pusi-Step "Ocultando Vista de tareas..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+                "ShowTaskViewButton" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    if ($Window.FindName("OptStartRecommendations").IsChecked) {
+    # --------------------------------------------------------
+    # START
+    # --------------------------------------------------------
 
-        Step "Reduciendo recomendaciones..."
+    if ((C "OptStartRecommendations").IsChecked) {
 
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "Start_IrisRecommendations" `
-            0 |
-            Out-Null
+        Pusi-Step "Reduciendo recomendaciones..."
 
 
-        Add-PusiResult "OK"
+        if (
+            Set-PusiDWORD `
+                "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+                "Start_IrisRecommendations" `
+                0
+        ) {
+
+            Add-PusiResult "OK"
+        }
+        else {
+
+            Add-PusiResult "ERROR"
+        }
     }
 
 
-    $Progress.Value = 100
+    $Progress.Value =
+        100
 
 
-    $StatusBar.Text =
-        "Optimización terminada."
+    Update-PusiSummary
+
+    Invoke-PusiAnalysis
 
 
-    $Extra = ""
+    $ResultMessage =
+        "Optimización completada.`n`n" +
+        "Correctos: $script:ResultadosOK`n" +
+        "Errores: $script:ResultadosError`n" +
+        "Omitidos: $script:ResultadosOmitidos"
 
 
     if ($Freed) {
 
-        $Extra =
-            "`nEspacio liberado: $Freed"
+        $ResultMessage +=
+            "`nEspacio liberado aprox.: $Freed"
+    }
+
+
+    if ($script:NeedsRestart) {
+
+        $ResultMessage +=
+            "`n`nSe recomienda reiniciar Windows."
     }
 
 
     [System.Windows.MessageBox]::Show(
-        "PUSI OPTI ha terminado.`n`nCorrectos: $script:ResultadosOK`nErrores: $script:ResultadosError`nOmitidos: $script:ResultadosOmitidos$Extra`n`nCambios que pueden requerir reinicio: $($RestartSelected.Count)",
+        $ResultMessage,
         "PUSI OPTI - Resultado",
         "OK",
         "Information"
     )
 
 
-    Update-PusiState
+    $StatusBar.Text =
+        "Optimización terminada."
 })
 
 
 # ============================================================
-# REVERTIR
+# REVERTIR EXACTAMENTE DESDE BACKUP DE SESION
 # ============================================================
 
-$Window.FindName("RevertSelected").Add_Click({
+(C "RevertSelected").Add_Click({
 
-    if ($Window.FindName("OptTelemetry").IsChecked) {
+    if ($script:SessionBackup.Count -eq 0) {
 
-        Remove-RegValue `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
-            "AllowTelemetry" |
-            Out-Null
+        [System.Windows.MessageBox]::Show(
+            "No existe un backup de esta sesión.`n`nPUSI OPTI guarda los valores originales cuando aplica cambios. Si ya cerraste la aplicación, utiliza el punto de restauración.",
+            "PUSI OPTI",
+            "OK",
+            "Information"
+        )
+
+        return
     }
 
 
-    if ($Window.FindName("OptActivityHistory").IsChecked) {
-
-        Remove-RegValue `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
-            "EnableActivityFeed" |
-            Out-Null
+    $Restored = 0
 
 
-        Remove-RegValue `
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
-            "PublishUserActivities" |
-            Out-Null
+    $Map = @{
+
+        OptTelemetry =
+            @("Telemetry")
+
+        OptActivityHistory =
+            @(
+                "ActivityFeed",
+                "PublishActivities"
+            )
+
+        OptConsumerFeatures =
+            @("ConsumerFeatures")
+
+        OptDelivery =
+            @("DeliveryMode")
+
+        OptSearchWeb =
+            @("SearchWeb")
+
+        OptWidgets =
+            @("Widgets")
+
+        OptGameDVR =
+            @(
+                "GameDVR",
+                "AppCapture"
+            )
+
+        OptGameMode =
+            @("GameMode")
+
+        OptPowerThrottling =
+            @("PowerThrottling")
+
+        OptBackgroundApps =
+            @("BackgroundApps")
+
+        OptAnimations =
+            @("Animations")
+
+        OptTransparency =
+            @("Transparency")
+
+        OptTaskbarAnimations =
+            @("TaskbarAnimations")
+
+        OptVisualPerformance =
+            @("VisualPerformance")
+
+        OptExtensions =
+            @("Extensions")
+
+        OptHiddenFiles =
+            @("HiddenFiles")
+
+        OptLongPaths =
+            @("LongPaths")
+
+        OptMouseAcceleration =
+            @(
+                "MouseSpeed",
+                "MouseThreshold1",
+                "MouseThreshold2"
+            )
+
+        OptStickyKeys =
+            @("StickyKeys")
+
+        OptTaskbarSearch =
+            @("TaskbarSearch")
+
+        OptTaskView =
+            @("TaskView")
+
+        OptStartRecommendations =
+            @("StartRecommendations")
     }
 
 
-    if ($Window.FindName("OptGameDVR").IsChecked) {
+    foreach ($Option in $Map.Keys) {
 
-        Set-RegDWORD `
-            "HKCU:\System\GameConfigStore" `
-            "GameDVR_Enabled" `
-            1 |
-            Out-Null
+        if ((C $Option).IsChecked) {
+
+            foreach ($BackupID in $Map[$Option]) {
+
+                if (
+                    Restore-PusiRegValue `
+                        $BackupID
+                ) {
+
+                    $Restored++
+                }
+            }
+        }
     }
 
 
-    if ($Window.FindName("OptGameMode").IsChecked) {
-
-        Remove-RegValue `
-            "HKCU:\Software\Microsoft\GameBar" `
-            "AutoGameModeEnabled" |
-            Out-Null
-    }
+    $script:NeedsRestart =
+        $true
 
 
-    if ($Window.FindName("OptPowerThrottling").IsChecked) {
-
-        Remove-RegValue `
-            "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" `
-            "PowerThrottlingOff" |
-            Out-Null
-    }
+    Update-PusiSummary
 
 
-    if ($Window.FindName("OptTransparency").IsChecked) {
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
-            "EnableTransparency" `
-            1 |
-            Out-Null
-    }
-
-
-    if ($Window.FindName("OptAnimations").IsChecked) {
-
-        Set-RegString `
-            "HKCU:\Control Panel\Desktop\WindowMetrics" `
-            "MinAnimate" `
-            "1" |
-            Out-Null
-    }
-
-
-    if ($Window.FindName("OptFileExtensions").IsChecked) {
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "HideFileExt" `
-            1 |
-            Out-Null
-    }
-
-
-    if ($Window.FindName("OptHiddenFiles").IsChecked) {
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "Hidden" `
-            2 |
-            Out-Null
-    }
-
-
-    if ($Window.FindName("OptTaskbarSearch").IsChecked) {
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
-            "SearchboxTaskbarMode" `
-            1 |
-            Out-Null
-    }
-
-
-    if ($Window.FindName("OptTaskView").IsChecked) {
-
-        Set-RegDWORD `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            "ShowTaskViewButton" `
-            1 |
-            Out-Null
-    }
+    [System.Windows.MessageBox]::Show(
+        "Reversión terminada.`n`nValores originales restaurados: $Restored`n`nSe recomienda reiniciar Windows.",
+        "PUSI OPTI",
+        "OK",
+        "Information"
+    )
 
 
     $StatusBar.Text =
-        "Ajustes seleccionados revertidos."
-
-
-    Update-PusiState
+        "Configuración original de sesión restaurada."
 })
 
 
 # ============================================================
-# CONFIGURACION
+# SFC
 # ============================================================
 
-$Window.FindName("RunSFC").Add_Click({
+(C "RunSFC").Add_Click({
 
     Start-Process `
         powershell.exe `
         -Verb RunAs `
-        -ArgumentList '-NoExit -Command "sfc /scannow"'
+        -ArgumentList `
+        '-NoExit -Command "sfc /scannow"'
 })
 
 
-$Window.FindName("RunDISM").Add_Click({
+# ============================================================
+# DISM
+# ============================================================
+
+(C "RunDISM").Add_Click({
 
     Start-Process `
         powershell.exe `
         -Verb RunAs `
-        -ArgumentList '-NoExit -Command "DISM /Online /Cleanup-Image /RestoreHealth"'
+        -ArgumentList `
+        '-NoExit -Command "DISM /Online /Cleanup-Image /RestoreHealth"'
 })
 
 
-$Window.FindName("FlushDNS").Add_Click({
+# ============================================================
+# DNS
+# ============================================================
+
+(C "FlushDNS").Add_Click({
 
     ipconfig /flushdns |
         Out-Null
@@ -2973,9 +5160,13 @@ $Window.FindName("FlushDNS").Add_Click({
 })
 
 
-$Window.FindName("ResetNetwork").Add_Click({
+# ============================================================
+# RESET RED
+# ============================================================
 
-    $Answer =
+(C "ResetNetwork").Add_Click({
+
+    $Confirm =
         [System.Windows.MessageBox]::Show(
             "Se restablecerán Winsock y TCP/IP.`n`nSerá necesario reiniciar Windows.`n`n¿Continuar?",
             "PUSI OPTI",
@@ -2984,7 +5175,7 @@ $Window.FindName("ResetNetwork").Add_Click({
         )
 
 
-    if ($Answer -eq "Yes") {
+    if ($Confirm -eq "Yes") {
 
         netsh winsock reset |
             Out-Null
@@ -2994,29 +5185,47 @@ $Window.FindName("ResetNetwork").Add_Click({
             Out-Null
 
 
+        $script:NeedsRestart =
+            $true
+
+
+        Update-PusiRestartIndicator
+
+
         $StatusBar.Text =
             "Red restablecida. Reinicia Windows."
     }
 })
 
 
-$Window.FindName("DeepCleanup").Add_Click({
+# ============================================================
+# LIMPIEZA
+# ============================================================
+
+(C "DeepCleanup").Add_Click({
 
     $Freed =
         Invoke-PusiDeepCleanup `
-            -StatusBar $StatusBar
+            -StatusControl $StatusBar
 
 
     [System.Windows.MessageBox]::Show(
-        "Limpieza completada.`n`nEspacio eliminado aproximadamente: $Freed",
+        "Limpieza profunda terminada.`n`nEspacio liberado aproximado: $Freed`n`nNo se han eliminado contraseñas, cookies, favoritos ni perfiles de navegador.",
         "PUSI OPTI",
         "OK",
         "Information"
     )
+
+
+    Update-PusiSummary
 })
 
 
-$Window.FindName("EmptyRecycle").Add_Click({
+# ============================================================
+# PAPELERA
+# ============================================================
+
+(C "EmptyRecycle").Add_Click({
 
     Clear-RecycleBin `
         -Force `
@@ -3028,14 +5237,18 @@ $Window.FindName("EmptyRecycle").Add_Click({
 })
 
 
-$Window.FindName("CheckTrim").Add_Click({
+# ============================================================
+# TRIM
+# ============================================================
+
+(C "CheckTrim").Add_Click({
 
     $Result =
         fsutil behavior query DisableDeleteNotify
 
 
     [System.Windows.MessageBox]::Show(
-        "$Result`n`nValor 0 = TRIM habilitado.",
+        "$Result`n`nNTFS DisableDeleteNotify = 0 significa que TRIM está habilitado.",
         "PUSI OPTI - TRIM",
         "OK",
         "Information"
@@ -3043,7 +5256,11 @@ $Window.FindName("CheckTrim").Add_Click({
 })
 
 
-$Window.FindName("OptimizeStorage").Add_Click({
+# ============================================================
+# RETRIM
+# ============================================================
+
+(C "OptimizeStorage").Add_Click({
 
     $StatusBar.Text =
         "Ejecutando ReTrim..."
@@ -3051,6 +5268,7 @@ $Window.FindName("OptimizeStorage").Add_Click({
 
     Get-Volume |
         Where-Object {
+
             $_.DriveLetter -and
             $_.DriveType -eq "Fixed"
         } |
@@ -3065,81 +5283,73 @@ $Window.FindName("OptimizeStorage").Add_Click({
 
 
     $StatusBar.Text =
-        "Optimización de almacenamiento terminada."
+        "ReTrim terminado."
 })
 
 
 # ============================================================
-# WINDOWS UPDATE
+# WINDOWS UPDATE - PAUSA
 # ============================================================
 
-$Window.FindName("Pause7").Add_Click({
+function Set-PusiUpdatePause {
+
+    param(
+        [int]$Days
+    )
+
 
     $Now =
         (Get-Date).ToUniversalTime()
 
 
     $End =
-        $Now.AddDays(7)
+        $Now.AddDays($Days)
 
 
-    Set-RegString `
+    Set-PusiString `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesStartTime" `
         $Now.ToString("yyyy-MM-ddTHH:mm:ssZ") |
         Out-Null
 
 
-    Set-RegString `
+    Set-PusiString `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesExpiryTime" `
         $End.ToString("yyyy-MM-ddTHH:mm:ssZ") |
         Out-Null
+}
+
+
+(C "Pause7").Add_Click({
+
+    Set-PusiUpdatePause 7
 
 
     $StatusBar.Text =
-        "Windows Update pausado 7 días."
+        "Pausa de actualizaciones solicitada por 7 días."
 })
 
 
-$Window.FindName("Pause35").Add_Click({
+(C "Pause35").Add_Click({
 
-    $Now =
-        (Get-Date).ToUniversalTime()
-
-
-    $End =
-        $Now.AddDays(35)
-
-
-    Set-RegString `
-        "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
-        "PauseUpdatesStartTime" `
-        $Now.ToString("yyyy-MM-ddTHH:mm:ssZ") |
-        Out-Null
-
-
-    Set-RegString `
-        "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
-        "PauseUpdatesExpiryTime" `
-        $End.ToString("yyyy-MM-ddTHH:mm:ssZ") |
-        Out-Null
+    Set-PusiUpdatePause 35
 
 
     $StatusBar.Text =
-        "Windows Update pausado 35 días."
+        "Pausa de actualizaciones solicitada por 35 días."
 })
 
 
-$Window.FindName("ResumeUpdates").Add_Click({
+(C "ResumeUpdates").Add_Click({
 
-    Remove-RegValue `
+    Remove-PusiRegValue `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesStartTime" |
         Out-Null
 
 
-    Remove-RegValue `
+    Remove-PusiRegValue `
         "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
         "PauseUpdatesExpiryTime" |
         Out-Null
@@ -3150,9 +5360,13 @@ $Window.FindName("ResumeUpdates").Add_Click({
 })
 
 
-$Window.FindName("DisableDriverUpdates").Add_Click({
+# ============================================================
+# DRIVERS WU
+# ============================================================
 
-    Set-RegDWORD `
+(C "DisableDriverUpdates").Add_Click({
+
+    Set-PusiDWORD `
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" `
         "ExcludeWUDriversInQualityUpdate" `
         1 |
@@ -3164,9 +5378,9 @@ $Window.FindName("DisableDriverUpdates").Add_Click({
 })
 
 
-$Window.FindName("EnableDriverUpdates").Add_Click({
+(C "EnableDriverUpdates").Add_Click({
 
-    Remove-RegValue `
+    Remove-PusiRegValue `
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" `
         "ExcludeWUDriversInQualityUpdate" |
         Out-Null
@@ -3177,24 +5391,28 @@ $Window.FindName("EnableDriverUpdates").Add_Click({
 })
 
 
-$Window.FindName("DisableWU").Add_Click({
+# ============================================================
+# DESACTIVAR WINDOWS UPDATE
+# ============================================================
 
-    $Answer =
+(C "DisableWU").Add_Click({
+
+    $Confirm =
         [System.Windows.MessageBox]::Show(
-            "Esto puede impedir actualizaciones y parches de seguridad.`n`n¿Desactivar Windows Update?",
+            "Esto puede impedir que Windows reciba actualizaciones y parches de seguridad.`n`n¿Continuar?",
             "PUSI OPTI",
             "YesNo",
             "Warning"
         )
 
 
-    if ($Answer -ne "Yes") {
+    if ($Confirm -ne "Yes") {
 
         return
     }
 
 
-    Set-RegDWORD `
+    Set-PusiDWORD `
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" `
         "NoAutoUpdate" `
         1 |
@@ -3218,9 +5436,13 @@ $Window.FindName("DisableWU").Add_Click({
 })
 
 
-$Window.FindName("EnableWU").Add_Click({
+# ============================================================
+# REACTIVAR WINDOWS UPDATE
+# ============================================================
 
-    Remove-RegValue `
+(C "EnableWU").Add_Click({
+
+    Remove-PusiRegValue `
         "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" `
         "NoAutoUpdate" |
         Out-Null
@@ -3246,7 +5468,11 @@ $Window.FindName("EnableWU").Add_Click({
 # INICIALIZACION
 # ============================================================
 
-Update-PusiState
+Update-PusiSelectionCounter
+
+Update-PusiSummary
+
+Invoke-PusiAnalysis
 
 
 $Progress.Value =
