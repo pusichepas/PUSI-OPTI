@@ -1,5 +1,6 @@
 # ============================================================
-# PUSI OPTI TOOL v0.1
+# PUSI OPTI TOOL
+# VERSION 0.2
 # ============================================================
 
 Add-Type -AssemblyName PresentationFramework
@@ -7,35 +8,119 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 # ============================================================
-# ADMIN CHECK
+# ADMINISTRADOR
 # ============================================================
 
 function Test-Admin {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 
-    return $principal.IsInRole(
+    $Identity =
+        [Security.Principal.WindowsIdentity]::GetCurrent()
+
+    $Principal =
+        New-Object Security.Principal.WindowsPrincipal($Identity)
+
+    return $Principal.IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator
     )
 }
 
+
 if (-not (Test-Admin)) {
 
-    if ($PSCommandPath) {
-        Start-Process powershell.exe `
-            -Verb RunAs `
-            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-    }
-    else {
-        [System.Windows.MessageBox]::Show(
-            "PUSI OPTI necesita permisos de administrador.`n`nAbre PowerShell como administrador y vuelve a ejecutar el comando.",
-            "PUSI OPTI",
-            "OK",
-            "Warning"
-        )
-    }
+    [System.Windows.MessageBox]::Show(
+        "PUSI OPTI necesita permisos de administrador.`n`nAbre PowerShell como administrador y vuelve a ejecutar el comando.",
+        "PUSI OPTI",
+        "OK",
+        "Warning"
+    )
 
     exit
+}
+
+
+# ============================================================
+# FUNCIONES AUXILIARES
+# ============================================================
+
+function Set-RegDWORD {
+
+    param(
+        [string]$Path,
+        [string]$Name,
+        [int]$Value
+    )
+
+    if (-not (Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+
+    New-ItemProperty `
+        -Path $Path `
+        -Name $Name `
+        -PropertyType DWord `
+        -Value $Value `
+        -Force |
+        Out-Null
+}
+
+
+function Set-RegString {
+
+    param(
+        [string]$Path,
+        [string]$Name,
+        [string]$Value
+    )
+
+    if (-not (Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+
+    New-ItemProperty `
+        -Path $Path `
+        -Name $Name `
+        -PropertyType String `
+        -Value $Value `
+        -Force |
+        Out-Null
+}
+
+
+function Remove-RegValue {
+
+    param(
+        [string]$Path,
+        [string]$Name
+    )
+
+    Remove-ItemProperty `
+        -Path $Path `
+        -Name $Name `
+        -ErrorAction SilentlyContinue
+}
+
+
+function Crear-PuntoRestauracion {
+
+    try {
+
+        Enable-ComputerRestore `
+            -Drive "C:\" `
+            -ErrorAction SilentlyContinue
+
+        Checkpoint-Computer `
+            -Description "PUSI OPTI - PRE OPTIMIZACION" `
+            -RestorePointType "MODIFY_SETTINGS"
+
+        return $true
+
+    }
+    catch {
+
+        return $false
+
+    }
+
 }
 
 
@@ -48,40 +133,52 @@ if (-not (Test-Admin)) {
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="PUSI OPTI"
-    Width="1100"
-    Height="720"
+    Width="1180"
+    Height="780"
+    MinWidth="1000"
+    MinHeight="650"
     WindowStartupLocation="CenterScreen"
-    ResizeMode="CanResize"
     Background="#111318">
 
     <Window.Resources>
 
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#21252B"/>
+
+            <Setter Property="Background" Value="#20252B"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#3B4048"/>
+            <Setter Property="BorderBrush" Value="#3A414A"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Padding" Value="12,7"/>
             <Setter Property="Margin" Value="4"/>
             <Setter Property="FontSize" Value="13"/>
+
         </Style>
+
 
         <Style TargetType="CheckBox">
+
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Margin" Value="8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="6"/>
+
         </Style>
+
 
         <Style TargetType="TextBlock">
+
             <Setter Property="Foreground" Value="White"/>
+
         </Style>
 
+
         <Style TargetType="TabItem">
+
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background" Value="#1A1D22"/>
+            <Setter Property="Background" Value="#181C21"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="22,10"/>
+            <Setter Property="Padding" Value="25,10"/>
+
         </Style>
 
     </Window.Resources>
@@ -90,14 +187,16 @@ if (-not (Test-Admin)) {
     <Grid>
 
         <Grid.RowDefinitions>
-            <RowDefinition Height="90"/>
+
+            <RowDefinition Height="88"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="42"/>
+
         </Grid.RowDefinitions>
 
 
         <!-- ================================================= -->
-        <!-- HEADER -->
+        <!-- CABECERA -->
         <!-- ================================================= -->
 
         <Border
@@ -109,9 +208,12 @@ if (-not (Test-Admin)) {
             <Grid Margin="24,0">
 
                 <Grid.ColumnDefinitions>
+
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+
                 </Grid.ColumnDefinitions>
+
 
                 <StackPanel
                     VerticalAlignment="Center">
@@ -122,7 +224,7 @@ if (-not (Test-Admin)) {
                         FontWeight="Bold"/>
 
                     <TextBlock
-                        Text="Windows Utility"
+                        Text="Windows Optimization Utility"
                         Foreground="#AEB4BE"
                         FontSize="13"/>
 
@@ -131,8 +233,7 @@ if (-not (Test-Admin)) {
 
                 <StackPanel
                     Grid.Column="1"
-                    VerticalAlignment="Center"
-                    HorizontalAlignment="Right">
+                    VerticalAlignment="Center">
 
                     <TextBlock
                         x:Name="SystemStatus"
@@ -141,10 +242,10 @@ if (-not (Test-Admin)) {
                         HorizontalAlignment="Right"/>
 
                     <TextBlock
-                        Text="v0.1"
+                        Text="v0.2"
                         Foreground="#777D87"
                         HorizontalAlignment="Right"
-                        Margin="0,5,0,0"/>
+                        Margin="0,4,0,0"/>
 
                 </StackPanel>
 
@@ -158,189 +259,267 @@ if (-not (Test-Admin)) {
         <!-- ================================================= -->
 
         <TabControl
-            x:Name="MainTabs"
             Grid.Row="1"
             Background="#111318"
             BorderBrush="#30343B">
 
 
             <!-- ================================================= -->
-            <!-- INSTALL -->
+            <!-- OPTIMIZACION -->
             <!-- ================================================= -->
 
-            <TabItem Header="INSTALL">
+            <TabItem Header="OPTIMIZACIÓN">
 
-                <Grid Margin="24">
+                <Grid Margin="20">
 
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
 
-                    <StackPanel>
-
-                        <TextBlock
-                            Text="Install Applications"
-                            FontSize="24"
-                            FontWeight="Bold"/>
-
-                        <TextBlock
-                            Text="Selecciona las aplicaciones que quieras instalar con Winget."
-                            Foreground="#AEB4BE"
-                            Margin="0,6,0,18"/>
-
-                    </StackPanel>
-
-
-                    <ScrollViewer
-                        Grid.Row="1"
-                        VerticalScrollBarVisibility="Auto">
-
-                        <StackPanel>
-
-                            <TextBlock
-                                Text="Browsers"
-                                FontSize="17"
-                                FontWeight="Bold"
-                                Margin="0,5,0,5"/>
-
-                            <CheckBox x:Name="InstallChrome" Content="Google Chrome"/>
-                            <CheckBox x:Name="InstallFirefox" Content="Mozilla Firefox"/>
-                            <CheckBox x:Name="InstallBrave" Content="Brave Browser"/>
-
-
-                            <Separator Margin="0,12"/>
-
-
-                            <TextBlock
-                                Text="Gaming"
-                                FontSize="17"
-                                FontWeight="Bold"
-                                Margin="0,5,0,5"/>
-
-                            <CheckBox x:Name="InstallSteam" Content="Steam"/>
-                            <CheckBox x:Name="InstallDiscord" Content="Discord"/>
-                            <CheckBox x:Name="InstallEpic" Content="Epic Games Launcher"/>
-
-
-                            <Separator Margin="0,12"/>
-
-
-                            <TextBlock
-                                Text="Utilities"
-                                FontSize="17"
-                                FontWeight="Bold"
-                                Margin="0,5,0,5"/>
-
-                            <CheckBox x:Name="Install7Zip" Content="7-Zip"/>
-                            <CheckBox x:Name="InstallNotepadPP" Content="Notepad++"/>
-                            <CheckBox x:Name="InstallVLC" Content="VLC"/>
-                            <CheckBox x:Name="InstallHWiNFO" Content="HWiNFO"/>
-                            <CheckBox x:Name="InstallCrystalDiskInfo" Content="CrystalDiskInfo"/>
-
-                        </StackPanel>
-
-                    </ScrollViewer>
-
-
-                    <StackPanel
-                        Grid.Row="2"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Right">
-
-                        <Button
-                            x:Name="InstallSelectedButton"
-                            Content="INSTALL SELECTED"
-                            Width="180"/>
-
-                    </StackPanel>
-
-                </Grid>
-
-            </TabItem>
-
-
-            <!-- ================================================= -->
-            <!-- TWEAKS -->
-            <!-- ================================================= -->
-
-            <TabItem Header="TWEAKS">
-
-                <Grid Margin="24">
-
-                    <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
+
                     </Grid.RowDefinitions>
 
 
                     <StackPanel>
 
                         <TextBlock
-                            Text="Windows Tweaks"
+                            Text="Optimización de Windows"
                             FontSize="24"
                             FontWeight="Bold"/>
 
                         <TextBlock
-                            Text="Tweaks generales de Windows. No incluye tus optimizaciones manuales."
+                            Text="Selecciona los cambios que quieras aplicar."
                             Foreground="#AEB4BE"
-                            Margin="0,6,0,18"/>
+                            Margin="0,4,0,12"/>
 
                     </StackPanel>
 
 
-                    <StackPanel
-                        Grid.Row="1"
-                        Orientation="Horizontal"
-                        Margin="0,0,0,12">
+                    <!-- PRESETS -->
+
+                    <WrapPanel Grid.Row="1">
 
                         <Button
-                            x:Name="MinimalPresetButton"
-                            Content="MINIMAL"
+                            x:Name="PresetBasico"
+                            Content="BÁSICO"
                             Width="120"/>
 
                         <Button
-                            x:Name="StandardPresetButton"
-                            Content="STANDARD"
+                            x:Name="PresetRecomendado"
+                            Content="RECOMENDADO"
+                            Width="140"/>
+
+                        <Button
+                            x:Name="PresetAgresivo"
+                            Content="AGRESIVO"
                             Width="120"/>
 
                         <Button
-                            x:Name="AdvancedPresetButton"
-                            Content="ADVANCED"
-                            Width="120"/>
+                            x:Name="LimpiarSeleccion"
+                            Content="LIMPIAR SELECCIÓN"
+                            Width="160"/>
 
-                        <Button
-                            x:Name="ClearTweaksButton"
-                            Content="CLEAR"
-                            Width="100"/>
+                    </WrapPanel>
 
-                    </StackPanel>
 
+                    <!-- AJUSTES -->
 
                     <ScrollViewer
                         Grid.Row="2"
                         VerticalScrollBarVisibility="Auto">
 
-                        <StackPanel>
+                        <Grid Margin="0,12,0,10">
 
-                            <CheckBox x:Name="TweakRestorePoint" Content="Create Restore Point"/>
-                            <CheckBox x:Name="TweakTelemetry" Content="Disable Telemetry"/>
-                            <CheckBox x:Name="TweakActivityHistory" Content="Disable Activity History"/>
-                            <CheckBox x:Name="TweakConsumerFeatures" Content="Disable Consumer Features"/>
-                            <CheckBox x:Name="TweakGameDVR" Content="Disable Game DVR"/>
-                            <CheckBox x:Name="TweakBingSearch" Content="Disable Bing Search"/>
-                            <CheckBox x:Name="TweakWidgets" Content="Disable Widgets"/>
-                            <CheckBox x:Name="TweakFileExtensions" Content="Show File Extensions"/>
-                            <CheckBox x:Name="TweakHiddenFiles" Content="Show Hidden Files"/>
-                            <CheckBox x:Name="TweakMouseAcceleration" Content="Disable Mouse Acceleration"/>
+                            <Grid.ColumnDefinitions>
 
-                        </StackPanel>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="20"/>
+                                <ColumnDefinition Width="*"/>
+
+                            </Grid.ColumnDefinitions>
+
+
+                            <!-- IZQUIERDA -->
+
+                            <StackPanel Grid.Column="0">
+
+
+                                <TextBlock
+                                    Text="AJUSTES ESENCIALES"
+                                    FontSize="17"
+                                    FontWeight="Bold"
+                                    Foreground="#46D9FF"
+                                    Margin="5"/>
+
+
+                                <CheckBox
+                                    x:Name="OptRestorePoint"
+                                    Content="Crear punto de restauración"/>
+
+                                <CheckBox
+                                    x:Name="OptTelemetry"
+                                    Content="Desactivar telemetría"/>
+
+                                <CheckBox
+                                    x:Name="OptActivityHistory"
+                                    Content="Desactivar historial de actividad"/>
+
+                                <CheckBox
+                                    x:Name="OptConsumerFeatures"
+                                    Content="Desactivar contenido promocional de Windows"/>
+
+                                <CheckBox
+                                    x:Name="OptDeliveryOptimization"
+                                    Content="Desactivar Delivery Optimization P2P"/>
+
+                                <CheckBox
+                                    x:Name="OptGameDVR"
+                                    Content="Desactivar Game DVR"/>
+
+                                <CheckBox
+                                    x:Name="OptLocation"
+                                    Content="Desactivar seguimiento de ubicación"/>
+
+                                <CheckBox
+                                    x:Name="OptSearchWeb"
+                                    Content="Desactivar resultados web en búsqueda"/>
+
+                                <CheckBox
+                                    x:Name="OptWidgets"
+                                    Content="Eliminar Widgets de la barra de tareas"/>
+
+                                <CheckBox
+                                    x:Name="OptTemporary"
+                                    Content="Limpiar archivos temporales"/>
+
+
+                                <Separator Margin="0,14"/>
+
+
+                                <TextBlock
+                                    Text="AJUSTES AVANZADOS - PRECAUCIÓN"
+                                    FontSize="17"
+                                    FontWeight="Bold"
+                                    Foreground="#46D9FF"
+                                    Margin="5"/>
+
+
+                                <CheckBox
+                                    x:Name="OptBackgroundApps"
+                                    Content="Reducir aplicaciones en segundo plano"/>
+
+                                <CheckBox
+                                    x:Name="OptReservedStorage"
+                                    Content="Desactivar Reserved Storage"/>
+
+                                <CheckBox
+                                    x:Name="OptHibernation"
+                                    Content="Desactivar hibernación"/>
+
+                                <CheckBox
+                                    x:Name="OptOneDriveStartup"
+                                    Content="Desactivar inicio automático de OneDrive"/>
+
+                                <CheckBox
+                                    x:Name="OptVisualEffects"
+                                    Content="Efectos visuales orientados a rendimiento"/>
+
+                                <CheckBox
+                                    x:Name="OptStorageSense"
+                                    Content="Desactivar Storage Sense automático"/>
+
+                            </StackPanel>
+
+
+                            <!-- DERECHA -->
+
+                            <StackPanel Grid.Column="2">
+
+
+                                <TextBlock
+                                    Text="PREFERENCIAS Y RENDIMIENTO"
+                                    FontSize="17"
+                                    FontWeight="Bold"
+                                    Foreground="#46D9FF"
+                                    Margin="5"/>
+
+
+                                <CheckBox
+                                    x:Name="OptDarkMode"
+                                    Content="Modo oscuro de Windows"/>
+
+                                <CheckBox
+                                    x:Name="OptLongPaths"
+                                    Content="Activar rutas largas"/>
+
+                                <CheckBox
+                                    x:Name="OptFileExtensions"
+                                    Content="Mostrar extensiones de archivo"/>
+
+                                <CheckBox
+                                    x:Name="OptHiddenFiles"
+                                    Content="Mostrar archivos ocultos"/>
+
+                                <CheckBox
+                                    x:Name="OptGameMode"
+                                    Content="Activar Game Mode"/>
+
+                                <CheckBox
+                                    x:Name="OptMouseAcceleration"
+                                    Content="Desactivar aceleración del ratón"/>
+
+                                <CheckBox
+                                    x:Name="OptStickyKeys"
+                                    Content="Desactivar Sticky Keys"/>
+
+                                <CheckBox
+                                    x:Name="OptTaskbarSearch"
+                                    Content="Ocultar búsqueda de la barra de tareas"/>
+
+                                <CheckBox
+                                    x:Name="OptTaskView"
+                                    Content="Ocultar Vista de tareas"/>
+
+                                <CheckBox
+                                    x:Name="OptStartRecommendations"
+                                    Content="Reducir recomendaciones del menú Inicio"/>
+
+                                <CheckBox
+                                    x:Name="OptWindowSnapping"
+                                    Content="Activar ajuste de ventanas"/>
+
+
+                                <Separator Margin="0,14"/>
+
+
+                                <TextBlock
+                                    Text="PLAN DE ENERGÍA"
+                                    FontSize="17"
+                                    FontWeight="Bold"
+                                    Foreground="#46D9FF"
+                                    Margin="5"/>
+
+
+                                <Button
+                                    x:Name="EnableUltimate"
+                                    Content="ACTIVAR MÁXIMO RENDIMIENTO"
+                                    HorizontalAlignment="Stretch"/>
+
+                                <Button
+                                    x:Name="DisableUltimate"
+                                    Content="VOLVER A EQUILIBRADO"
+                                    HorizontalAlignment="Stretch"/>
+
+                            </StackPanel>
+
+                        </Grid>
 
                     </ScrollViewer>
 
+
+                    <!-- BOTONES -->
 
                     <StackPanel
                         Grid.Row="3"
@@ -348,14 +527,14 @@ if (-not (Test-Admin)) {
                         HorizontalAlignment="Right">
 
                         <Button
-                            x:Name="UndoTweaksButton"
-                            Content="UNDO SELECTED"
-                            Width="160"/>
+                            x:Name="RevertirSeleccion"
+                            Content="REVERTIR SELECCIONADOS"
+                            Width="200"/>
 
                         <Button
-                            x:Name="ApplyTweaksButton"
-                            Content="APPLY SELECTED"
-                            Width="170"/>
+                            x:Name="AplicarSeleccion"
+                            Content="APLICAR SELECCIONADOS"
+                            Width="200"/>
 
                     </StackPanel>
 
@@ -365,78 +544,210 @@ if (-not (Test-Admin)) {
 
 
             <!-- ================================================= -->
-            <!-- CONFIG -->
+            <!-- CONFIGURACION -->
             <!-- ================================================= -->
 
-            <TabItem Header="CONFIG">
+            <TabItem Header="CONFIGURACIÓN">
 
                 <ScrollViewer
                     VerticalScrollBarVisibility="Auto">
 
-                    <StackPanel Margin="24">
+                    <StackPanel Margin="25">
+
 
                         <TextBlock
-                            Text="System Configuration"
+                            Text="Configuración y reparación"
                             FontSize="24"
                             FontWeight="Bold"/>
 
                         <TextBlock
-                            Text="Herramientas y reparaciones de Windows."
+                            Text="Herramientas de mantenimiento sin accesos innecesarios."
                             Foreground="#AEB4BE"
-                            Margin="0,6,0,18"/>
+                            Margin="0,5,0,20"/>
 
 
                         <TextBlock
-                            Text="Windows Tools"
+                            Text="REPARACIÓN DEL SISTEMA"
                             FontSize="17"
+                            FontWeight="Bold"
+                            Foreground="#46D9FF"/>
+
+
+                        <WrapPanel Margin="0,8">
+
+                            <Button
+                                x:Name="RunSFC"
+                                Content="SFC /SCANNOW"
+                                Width="180"/>
+
+                            <Button
+                                x:Name="RunDISM"
+                                Content="REPARAR CON DISM"
+                                Width="180"/>
+
+                            <Button
+                                x:Name="FlushDNS"
+                                Content="VACIAR DNS"
+                                Width="180"/>
+
+                            <Button
+                                x:Name="ResetNetwork"
+                                Content="REINICIAR RED"
+                                Width="180"/>
+
+                        </WrapPanel>
+
+
+                        <Separator Margin="0,18"/>
+
+
+                        <TextBlock
+                            Text="LIMPIEZA"
+                            FontSize="17"
+                            FontWeight="Bold"
+                            Foreground="#46D9FF"/>
+
+
+                        <WrapPanel Margin="0,8">
+
+                            <Button
+                                x:Name="CleanTemp"
+                                Content="LIMPIAR TEMPORALES"
+                                Width="190"/>
+
+                            <Button
+                                x:Name="CleanShaderCache"
+                                Content="LIMPIAR SHADER CACHE"
+                                Width="190"/>
+
+                            <Button
+                                x:Name="EmptyRecycle"
+                                Content="VACIAR PAPELERA"
+                                Width="190"/>
+
+                        </WrapPanel>
+
+
+                    </StackPanel>
+
+                </ScrollViewer>
+
+            </TabItem>
+
+
+            <!-- ================================================= -->
+            <!-- ACTUALIZACIONES -->
+            <!-- ================================================= -->
+
+            <TabItem Header="ACTUALIZACIONES">
+
+                <ScrollViewer
+                    VerticalScrollBarVisibility="Auto">
+
+                    <StackPanel Margin="25">
+
+
+                        <TextBlock
+                            Text="Windows Update"
+                            FontSize="24"
                             FontWeight="Bold"/>
 
-                        <WrapPanel Margin="0,5,0,16">
+                        <TextBlock
+                            Text="Control de actualizaciones de Windows."
+                            Foreground="#AEB4BE"
+                            Margin="0,5,0,20"/>
 
-                            <Button x:Name="OpenControlPanel" Content="Control Panel" Width="160"/>
-                            <Button x:Name="OpenDeviceManager" Content="Device Manager" Width="160"/>
-                            <Button x:Name="OpenServices" Content="Services" Width="160"/>
-                            <Button x:Name="OpenRegistry" Content="Registry Editor" Width="160"/>
-                            <Button x:Name="OpenTaskManager" Content="Task Manager" Width="160"/>
-                            <Button x:Name="OpenMSConfig" Content="System Configuration" Width="170"/>
+
+                        <Border
+                            Background="#241D15"
+                            BorderBrush="#A4762B"
+                            BorderThickness="1"
+                            Padding="14"
+                            Margin="0,0,0,20">
+
+                            <TextBlock
+                                TextWrapping="Wrap"
+                                Foreground="#E8C179"
+                                Text="AVISO: desactivar Windows Update también puede impedir la llegada de actualizaciones de seguridad. PUSI OPTI permite revertir estos cambios."/>
+
+                        </Border>
+
+
+                        <TextBlock
+                            Text="MODO RECOMENDADO"
+                            FontSize="17"
+                            FontWeight="Bold"
+                            Foreground="#46D9FF"/>
+
+
+                        <WrapPanel Margin="0,8">
+
+                            <Button
+                                x:Name="PauseUpdates7"
+                                Content="PAUSAR 7 DÍAS"
+                                Width="180"/>
+
+                            <Button
+                                x:Name="PauseUpdates35"
+                                Content="PAUSAR 35 DÍAS"
+                                Width="180"/>
 
                         </WrapPanel>
 
 
-                        <Separator Margin="0,8"/>
+                        <Separator Margin="0,18"/>
 
 
                         <TextBlock
-                            Text="Repairs"
+                            Text="CONTROL DE DRIVERS"
                             FontSize="17"
                             FontWeight="Bold"
-                            Margin="0,12,0,5"/>
+                            Foreground="#46D9FF"/>
 
-                        <WrapPanel>
 
-                            <Button x:Name="RunSFC" Content="SFC Scan" Width="160"/>
-                            <Button x:Name="RunDISM" Content="DISM Repair" Width="160"/>
-                            <Button x:Name="FlushDNS" Content="Flush DNS" Width="160"/>
-                            <Button x:Name="ResetNetwork" Content="Reset Network" Width="160"/>
+                        <WrapPanel Margin="0,8">
+
+                            <Button
+                                x:Name="DisableDriverWU"
+                                Content="NO INSTALAR DRIVERS POR WINDOWS UPDATE"
+                                Width="320"/>
+
+                            <Button
+                                x:Name="EnableDriverWU"
+                                Content="RESTAURAR DRIVERS"
+                                Width="200"/>
 
                         </WrapPanel>
 
 
-                        <Separator Margin="0,16"/>
+                        <Separator Margin="0,18"/>
 
 
                         <TextBlock
-                            Text="Advanced"
+                            Text="MODO AGRESIVO"
                             FontSize="17"
                             FontWeight="Bold"
-                            Margin="0,12,0,5"/>
+                            Foreground="#FF956B"/>
+
+
+                        <TextBlock
+                            TextWrapping="Wrap"
+                            Foreground="#AEB4BE"
+                            Margin="0,6,0,10"
+                            Text="Detiene y deshabilita temporalmente el servicio principal de Windows Update. Úsalo solo cuando sea necesario."/>
+
 
                         <WrapPanel>
 
-                            <Button x:Name="OpenPowerOptions" Content="Power Options" Width="160"/>
-                            <Button x:Name="OpenNetworkConnections" Content="Network Connections" Width="170"/>
-                            <Button x:Name="OpenSystemProperties" Content="System Properties" Width="170"/>
-                            <Button x:Name="OpenOptionalFeatures" Content="Optional Features" Width="170"/>
+                            <Button
+                                x:Name="DisableWindowsUpdate"
+                                Content="DESACTIVAR WINDOWS UPDATE"
+                                Width="260"/>
+
+                            <Button
+                                x:Name="EnableWindowsUpdate"
+                                Content="REACTIVAR WINDOWS UPDATE"
+                                Width="260"/>
 
                         </WrapPanel>
 
@@ -447,76 +758,11 @@ if (-not (Test-Admin)) {
             </TabItem>
 
 
-            <!-- ================================================= -->
-            <!-- UPDATES -->
-            <!-- ================================================= -->
-
-            <TabItem Header="UPDATES">
-
-                <Grid Margin="24">
-
-                    <StackPanel>
-
-                        <TextBlock
-                            Text="Windows Update"
-                            FontSize="24"
-                            FontWeight="Bold"/>
-
-                        <TextBlock
-                            Text="Administracion basica de actualizaciones."
-                            Foreground="#AEB4BE"
-                            Margin="0,6,0,22"/>
-
-
-                        <TextBlock
-                            Text="Windows"
-                            FontSize="17"
-                            FontWeight="Bold"/>
-
-                        <WrapPanel Margin="0,8,0,20">
-
-                            <Button
-                                x:Name="OpenWindowsUpdate"
-                                Content="OPEN WINDOWS UPDATE"
-                                Width="190"/>
-
-                            <Button
-                                x:Name="CheckWingetUpdates"
-                                Content="CHECK APP UPDATES"
-                                Width="190"/>
-
-                            <Button
-                                x:Name="UpgradeAllApps"
-                                Content="UPGRADE ALL APPS"
-                                Width="190"/>
-
-                        </WrapPanel>
-
-
-                        <Separator/>
-
-
-                        <TextBlock
-                            Text="Update Preferences"
-                            FontSize="17"
-                            FontWeight="Bold"
-                            Margin="0,18,0,8"/>
-
-                        <CheckBox
-                            x:Name="DisableDriverUpdates"
-                            Content="Disable Driver Updates through Windows Update"/>
-
-                    </StackPanel>
-
-                </Grid>
-
-            </TabItem>
-
         </TabControl>
 
 
         <!-- ================================================= -->
-        <!-- STATUS BAR -->
+        <!-- STATUS -->
         <!-- ================================================= -->
 
         <Border
@@ -525,17 +771,15 @@ if (-not (Test-Admin)) {
             BorderBrush="#30343B"
             BorderThickness="0,1,0,0">
 
-            <Grid Margin="16,0">
-
-                <TextBlock
-                    x:Name="StatusBar"
-                    Text="PUSI OPTI ready."
-                    VerticalAlignment="Center"
-                    Foreground="#AEB4BE"/>
-
-            </Grid>
+            <TextBlock
+                x:Name="StatusBar"
+                Text="PUSI OPTI lista."
+                Foreground="#AEB4BE"
+                VerticalAlignment="Center"
+                Margin="16,0"/>
 
         </Border>
+
 
     </Grid>
 
@@ -544,42 +788,37 @@ if (-not (Test-Admin)) {
 
 
 # ============================================================
-# LOAD WINDOW
+# CARGAR VENTANA
 # ============================================================
 
-$reader = New-Object System.Xml.XmlNodeReader $XAML
-$Window = [Windows.Markup.XamlReader]::Load($reader)
+$Reader =
+    New-Object System.Xml.XmlNodeReader $XAML
+
+$Window =
+    [Windows.Markup.XamlReader]::Load($Reader)
 
 
-# ============================================================
-# CONTROLS
-# ============================================================
+$StatusBar =
+    $Window.FindName("StatusBar")
 
-$SystemStatus = $Window.FindName("SystemStatus")
-$StatusBar = $Window.FindName("StatusBar")
-
-$InstallSelectedButton = $Window.FindName("InstallSelectedButton")
-
-$MinimalPresetButton = $Window.FindName("MinimalPresetButton")
-$StandardPresetButton = $Window.FindName("StandardPresetButton")
-$AdvancedPresetButton = $Window.FindName("AdvancedPresetButton")
-$ClearTweaksButton = $Window.FindName("ClearTweaksButton")
-
-$ApplyTweaksButton = $Window.FindName("ApplyTweaksButton")
-$UndoTweaksButton = $Window.FindName("UndoTweaksButton")
+$SystemStatus =
+    $Window.FindName("SystemStatus")
 
 
 # ============================================================
-# SYSTEM INFO
+# INFORMACION DEL EQUIPO
 # ============================================================
 
 try {
 
-    $OS = Get-CimInstance Win32_OperatingSystem
-    $CPU = Get-CimInstance Win32_Processor | Select-Object -First 1
-    $RAM = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+    $OS =
+        Get-CimInstance Win32_OperatingSystem
 
-    $RAMGB = [math]::Round($RAM / 1GB)
+    $RAM =
+        (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+
+    $RAMGB =
+        [math]::Round($RAM / 1GB)
 
     $SystemStatus.Text =
         "$($OS.Caption) | $RAMGB GB RAM"
@@ -587,348 +826,663 @@ try {
 }
 catch {
 
-    $SystemStatus.Text = "Windows System"
+    $SystemStatus.Text =
+        "Sistema Windows"
 
 }
 
 
 # ============================================================
-# INSTALL APPS
+# LISTA DE CHECKBOXES
 # ============================================================
 
-$InstallSelectedButton.Add_Click({
+$Todas = @(
 
-    $StatusBar.Text = "Installing selected applications..."
+    "OptRestorePoint",
+    "OptTelemetry",
+    "OptActivityHistory",
+    "OptConsumerFeatures",
+    "OptDeliveryOptimization",
+    "OptGameDVR",
+    "OptLocation",
+    "OptSearchWeb",
+    "OptWidgets",
+    "OptTemporary",
+    "OptBackgroundApps",
+    "OptReservedStorage",
+    "OptHibernation",
+    "OptOneDriveStartup",
+    "OptVisualEffects",
+    "OptStorageSense",
+    "OptDarkMode",
+    "OptLongPaths",
+    "OptFileExtensions",
+    "OptHiddenFiles",
+    "OptGameMode",
+    "OptMouseAcceleration",
+    "OptStickyKeys",
+    "OptTaskbarSearch",
+    "OptTaskView",
+    "OptStartRecommendations",
+    "OptWindowSnapping"
 
-    $Apps = @()
-
-    if ($Window.FindName("InstallChrome").IsChecked) {
-        $Apps += "Google.Chrome"
-    }
-
-    if ($Window.FindName("InstallFirefox").IsChecked) {
-        $Apps += "Mozilla.Firefox"
-    }
-
-    if ($Window.FindName("InstallBrave").IsChecked) {
-        $Apps += "Brave.Brave"
-    }
-
-    if ($Window.FindName("InstallSteam").IsChecked) {
-        $Apps += "Valve.Steam"
-    }
-
-    if ($Window.FindName("InstallDiscord").IsChecked) {
-        $Apps += "Discord.Discord"
-    }
-
-    if ($Window.FindName("InstallEpic").IsChecked) {
-        $Apps += "EpicGames.EpicGamesLauncher"
-    }
-
-    if ($Window.FindName("Install7Zip").IsChecked) {
-        $Apps += "7zip.7zip"
-    }
-
-    if ($Window.FindName("InstallNotepadPP").IsChecked) {
-        $Apps += "Notepad++.Notepad++"
-    }
-
-    if ($Window.FindName("InstallVLC").IsChecked) {
-        $Apps += "VideoLAN.VLC"
-    }
-
-    if ($Window.FindName("InstallHWiNFO").IsChecked) {
-        $Apps += "REALiX.HWiNFO"
-    }
-
-    if ($Window.FindName("InstallCrystalDiskInfo").IsChecked) {
-        $Apps += "CrystalDewWorld.CrystalDiskInfo"
-    }
-
-
-    if ($Apps.Count -eq 0) {
-
-        [System.Windows.MessageBox]::Show(
-            "No has seleccionado ninguna aplicacion.",
-            "PUSI OPTI"
-        )
-
-        return
-    }
-
-
-    foreach ($App in $Apps) {
-
-        $StatusBar.Text = "Installing $App..."
-
-        Start-Process `
-            winget `
-            -ArgumentList "install --id $App --exact --silent --accept-package-agreements --accept-source-agreements" `
-            -Wait `
-            -WindowStyle Hidden
-
-    }
-
-    $StatusBar.Text = "Applications installed."
-
-    [System.Windows.MessageBox]::Show(
-        "Instalacion terminada.",
-        "PUSI OPTI"
-    )
-
-})
+)
 
 
 # ============================================================
 # PRESETS
 # ============================================================
 
-$MinimalPresetButton.Add_Click({
+$Window.FindName("LimpiarSeleccion").Add_Click({
 
-    $Window.FindName("TweakRestorePoint").IsChecked = $true
-    $Window.FindName("TweakFileExtensions").IsChecked = $true
-    $Window.FindName("TweakGameDVR").IsChecked = $true
+    foreach ($Nombre in $Todas) {
 
-})
+        $Window.FindName($Nombre).IsChecked = $false
 
-
-$StandardPresetButton.Add_Click({
-
-    $MinimalPresetButton.RaiseEvent(
-        (New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))
-    )
-
-    $Window.FindName("TweakTelemetry").IsChecked = $true
-    $Window.FindName("TweakActivityHistory").IsChecked = $true
-    $Window.FindName("TweakConsumerFeatures").IsChecked = $true
-    $Window.FindName("TweakBingSearch").IsChecked = $true
-    $Window.FindName("TweakWidgets").IsChecked = $true
+    }
 
 })
 
 
-$AdvancedPresetButton.Add_Click({
+$Window.FindName("PresetBasico").Add_Click({
 
-    $StandardPresetButton.RaiseEvent(
-        (New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))
-    )
+    foreach ($Nombre in $Todas) {
+        $Window.FindName($Nombre).IsChecked = $false
+    }
 
-    $Window.FindName("TweakHiddenFiles").IsChecked = $true
-    $Window.FindName("TweakMouseAcceleration").IsChecked = $true
+    $Window.FindName("OptRestorePoint").IsChecked = $true
+    $Window.FindName("OptGameDVR").IsChecked = $true
+    $Window.FindName("OptFileExtensions").IsChecked = $true
+    $Window.FindName("OptGameMode").IsChecked = $true
 
 })
 
 
-$ClearTweaksButton.Add_Click({
+$Window.FindName("PresetRecomendado").Add_Click({
+
+    foreach ($Nombre in $Todas) {
+        $Window.FindName($Nombre).IsChecked = $false
+    }
 
     @(
-        "TweakRestorePoint",
-        "TweakTelemetry",
-        "TweakActivityHistory",
-        "TweakConsumerFeatures",
-        "TweakGameDVR",
-        "TweakBingSearch",
-        "TweakWidgets",
-        "TweakFileExtensions",
-        "TweakHiddenFiles",
-        "TweakMouseAcceleration"
+
+        "OptRestorePoint",
+        "OptTelemetry",
+        "OptActivityHistory",
+        "OptConsumerFeatures",
+        "OptDeliveryOptimization",
+        "OptGameDVR",
+        "OptSearchWeb",
+        "OptWidgets",
+        "OptTemporary",
+        "OptFileExtensions",
+        "OptGameMode",
+        "OptMouseAcceleration",
+        "OptStickyKeys",
+        "OptTaskbarSearch",
+        "OptStartRecommendations"
+
     ) | ForEach-Object {
 
-        $Window.FindName($_).IsChecked = $false
+        $Window.FindName($_).IsChecked = $true
 
     }
 
 })
 
 
-# ============================================================
-# APPLY TWEAKS
-# ============================================================
+$Window.FindName("PresetAgresivo").Add_Click({
 
-$ApplyTweaksButton.Add_Click({
-
-    $StatusBar.Text = "Applying tweaks..."
-
-
-    if ($Window.FindName("TweakRestorePoint").IsChecked) {
-
-        try {
-
-            Enable-ComputerRestore -Drive "C:\" -ErrorAction SilentlyContinue
-
-            Checkpoint-Computer `
-                -Description "PUSI OPTI - PRE TWEAKS" `
-                -RestorePointType "MODIFY_SETTINGS"
-
-        }
-        catch {}
-
+    foreach ($Nombre in $Todas) {
+        $Window.FindName($Nombre).IsChecked = $true
     }
-
-
-    if ($Window.FindName("TweakGameDVR").IsChecked) {
-
-        New-Item `
-            "HKCU:\System\GameConfigStore" `
-            -Force |
-            Out-Null
-
-        Set-ItemProperty `
-            "HKCU:\System\GameConfigStore" `
-            GameDVR_Enabled `
-            0
-
-    }
-
-
-    if ($Window.FindName("TweakMouseAcceleration").IsChecked) {
-
-        Set-ItemProperty `
-            "HKCU:\Control Panel\Mouse" `
-            MouseSpeed `
-            "0"
-
-        Set-ItemProperty `
-            "HKCU:\Control Panel\Mouse" `
-            MouseThreshold1 `
-            "0"
-
-        Set-ItemProperty `
-            "HKCU:\Control Panel\Mouse" `
-            MouseThreshold2 `
-            "0"
-
-    }
-
-
-    if ($Window.FindName("TweakFileExtensions").IsChecked) {
-
-        Set-ItemProperty `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            HideFileExt `
-            0
-
-    }
-
-
-    if ($Window.FindName("TweakHiddenFiles").IsChecked) {
-
-        Set-ItemProperty `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            Hidden `
-            1
-
-    }
-
-
-    $StatusBar.Text = "Tweaks applied."
-
-    [System.Windows.MessageBox]::Show(
-        "Tweaks aplicados.",
-        "PUSI OPTI"
-    )
 
 })
 
 
 # ============================================================
-# UNDO
+# APLICAR OPTIMIZACIONES
 # ============================================================
 
-$UndoTweaksButton.Add_Click({
+$Window.FindName("AplicarSeleccion").Add_Click({
 
-    $StatusBar.Text = "Undoing selected tweaks..."
+    $StatusBar.Text =
+        "Aplicando optimizaciones..."
 
 
-    if ($Window.FindName("TweakGameDVR").IsChecked) {
+    # RESTORE POINT
 
-        Set-ItemProperty `
+    if ($Window.FindName("OptRestorePoint").IsChecked) {
+
+        Crear-PuntoRestauracion | Out-Null
+
+    }
+
+
+    # TELEMETRIA
+
+    if ($Window.FindName("OptTelemetry").IsChecked) {
+
+        Set-RegDWORD `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
+            "AllowTelemetry" `
+            0
+
+    }
+
+
+    # ACTIVITY HISTORY
+
+    if ($Window.FindName("OptActivityHistory").IsChecked) {
+
+        Set-RegDWORD `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+            "EnableActivityFeed" `
+            0
+
+        Set-RegDWORD `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+            "PublishUserActivities" `
+            0
+
+    }
+
+
+    # CONSUMER FEATURES
+
+    if ($Window.FindName("OptConsumerFeatures").IsChecked) {
+
+        Set-RegDWORD `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" `
+            "DisableWindowsConsumerFeatures" `
+            1
+
+    }
+
+
+    # DELIVERY OPTIMIZATION
+
+    if ($Window.FindName("OptDeliveryOptimization").IsChecked) {
+
+        Set-RegDWORD `
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" `
+            "DODownloadMode" `
+            0
+
+    }
+
+
+    # GAME DVR
+
+    if ($Window.FindName("OptGameDVR").IsChecked) {
+
+        Set-RegDWORD `
             "HKCU:\System\GameConfigStore" `
-            GameDVR_Enabled `
+            "GameDVR_Enabled" `
+            0
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" `
+            "AppCaptureEnabled" `
+            0
+
+    }
+
+
+    # LOCATION
+
+    if ($Window.FindName("OptLocation").IsChecked) {
+
+        Set-RegString `
+            "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\Overrides\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}" `
+            "SensorPermissionState" `
+            "0"
+
+    }
+
+
+    # SEARCH WEB
+
+    if ($Window.FindName("OptSearchWeb").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Policies\Microsoft\Windows\Explorer" `
+            "DisableSearchBoxSuggestions" `
             1
 
     }
 
 
-    if ($Window.FindName("TweakMouseAcceleration").IsChecked) {
+    # WIDGETS
 
-        Set-ItemProperty `
-            "HKCU:\Control Panel\Mouse" `
-            MouseSpeed `
-            "1"
+    if ($Window.FindName("OptWidgets").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "TaskbarDa" `
+            0
 
     }
 
 
-    if ($Window.FindName("TweakFileExtensions").IsChecked) {
+    # TEMP
 
-        Set-ItemProperty `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            HideFileExt `
+    if ($Window.FindName("OptTemporary").IsChecked) {
+
+        Remove-Item `
+            "$env:TEMP\*" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+        Remove-Item `
+            "$env:SystemRoot\Temp\*" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+    }
+
+
+    # BACKGROUND APPS
+
+    if ($Window.FindName("OptBackgroundApps").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
+            "GlobalUserDisabled" `
             1
 
     }
 
 
-    if ($Window.FindName("TweakHiddenFiles").IsChecked) {
+    # HIBERNATION
 
-        Set-ItemProperty `
-            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
-            Hidden `
+    if ($Window.FindName("OptHibernation").IsChecked) {
+
+        powercfg /hibernate off
+
+    }
+
+
+    # ONEDRIVE
+
+    if ($Window.FindName("OptOneDriveStartup").IsChecked) {
+
+        Remove-RegValue `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
+            "OneDrive"
+
+    }
+
+
+    # VISUAL EFFECTS
+
+    if ($Window.FindName("OptVisualEffects").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
+            "VisualFXSetting" `
             2
 
     }
 
 
-    $StatusBar.Text = "Selected tweaks reverted."
+    # STORAGE SENSE
+
+    if ($Window.FindName("OptStorageSense").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" `
+            "01" `
+            0
+
+    }
+
+
+    # DARK MODE
+
+    if ($Window.FindName("OptDarkMode").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
+            "AppsUseLightTheme" `
+            0
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
+            "SystemUsesLightTheme" `
+            0
+
+    }
+
+
+    # LONG PATHS
+
+    if ($Window.FindName("OptLongPaths").IsChecked) {
+
+        Set-RegDWORD `
+            "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            "LongPathsEnabled" `
+            1
+
+    }
+
+
+    # EXTENSIONES
+
+    if ($Window.FindName("OptFileExtensions").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "HideFileExt" `
+            0
+
+    }
+
+
+    # OCULTOS
+
+    if ($Window.FindName("OptHiddenFiles").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "Hidden" `
+            1
+
+    }
+
+
+    # GAME MODE
+
+    if ($Window.FindName("OptGameMode").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\GameBar" `
+            "AutoGameModeEnabled" `
+            1
+
+    }
+
+
+    # MOUSE ACCELERATION
+
+    if ($Window.FindName("OptMouseAcceleration").IsChecked) {
+
+        Set-RegString `
+            "HKCU:\Control Panel\Mouse" `
+            "MouseSpeed" `
+            "0"
+
+        Set-RegString `
+            "HKCU:\Control Panel\Mouse" `
+            "MouseThreshold1" `
+            "0"
+
+        Set-RegString `
+            "HKCU:\Control Panel\Mouse" `
+            "MouseThreshold2" `
+            "0"
+
+    }
+
+
+    # STICKY KEYS
+
+    if ($Window.FindName("OptStickyKeys").IsChecked) {
+
+        Set-RegString `
+            "HKCU:\Control Panel\Accessibility\StickyKeys" `
+            "Flags" `
+            "506"
+
+    }
+
+
+    # TASKBAR SEARCH
+
+    if ($Window.FindName("OptTaskbarSearch").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
+            "SearchboxTaskbarMode" `
+            0
+
+    }
+
+
+    # TASK VIEW
+
+    if ($Window.FindName("OptTaskView").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "ShowTaskViewButton" `
+            0
+
+    }
+
+
+    # RECOMENDACIONES INICIO
+
+    if ($Window.FindName("OptStartRecommendations").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "Start_IrisRecommendations" `
+            0
+
+    }
+
+
+    # WINDOW SNAPPING
+
+    if ($Window.FindName("OptWindowSnapping").IsChecked) {
+
+        Set-RegString `
+            "HKCU:\Control Panel\Desktop" `
+            "WindowArrangementActive" `
+            "1"
+
+    }
+
+
+    $StatusBar.Text =
+        "Optimización terminada."
+
+
+    [System.Windows.MessageBox]::Show(
+        "Los ajustes seleccionados han sido aplicados.`n`nAlgunos cambios necesitan reiniciar Windows.",
+        "PUSI OPTI",
+        "OK",
+        "Information"
+    )
 
 })
 
 
 # ============================================================
-# CONFIG BUTTONS
+# REVERTIR
 # ============================================================
 
-$Window.FindName("OpenControlPanel").Add_Click({
-    Start-Process control.exe
+$Window.FindName("RevertirSeleccion").Add_Click({
+
+    $StatusBar.Text =
+        "Revirtiendo ajustes..."
+
+
+    if ($Window.FindName("OptTelemetry").IsChecked) {
+
+        Remove-RegValue `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" `
+            "AllowTelemetry"
+
+    }
+
+
+    if ($Window.FindName("OptActivityHistory").IsChecked) {
+
+        Remove-RegValue `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+            "EnableActivityFeed"
+
+        Remove-RegValue `
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" `
+            "PublishUserActivities"
+
+    }
+
+
+    if ($Window.FindName("OptGameDVR").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\System\GameConfigStore" `
+            "GameDVR_Enabled" `
+            1
+
+    }
+
+
+    if ($Window.FindName("OptWidgets").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "TaskbarDa" `
+            1
+
+    }
+
+
+    if ($Window.FindName("OptBackgroundApps").IsChecked) {
+
+        Remove-RegValue `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" `
+            "GlobalUserDisabled"
+
+    }
+
+
+    if ($Window.FindName("OptHibernation").IsChecked) {
+
+        powercfg /hibernate on
+
+    }
+
+
+    if ($Window.FindName("OptVisualEffects").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" `
+            "VisualFXSetting" `
+            0
+
+    }
+
+
+    if ($Window.FindName("OptGameMode").IsChecked) {
+
+        Remove-RegValue `
+            "HKCU:\Software\Microsoft\GameBar" `
+            "AutoGameModeEnabled"
+
+    }
+
+
+    if ($Window.FindName("OptTaskbarSearch").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" `
+            "SearchboxTaskbarMode" `
+            1
+
+    }
+
+
+    if ($Window.FindName("OptTaskView").IsChecked) {
+
+        Set-RegDWORD `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            "ShowTaskViewButton" `
+            1
+
+    }
+
+
+    $StatusBar.Text =
+        "Reversión terminada."
+
 })
 
-$Window.FindName("OpenDeviceManager").Add_Click({
-    Start-Process devmgmt.msc
+
+# ============================================================
+# PLAN DE ENERGIA
+# ============================================================
+
+$Window.FindName("EnableUltimate").Add_Click({
+
+    $StatusBar.Text =
+        "Activando Máximo Rendimiento..."
+
+
+    $Output =
+        powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+
+
+    $Guid =
+        [regex]::Match(
+            $Output,
+            '[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}'
+        ).Value
+
+
+    if ($Guid) {
+
+        powercfg /setactive $Guid
+
+    }
+    else {
+
+        powercfg /setactive SCHEME_MIN
+
+    }
+
+
+    $StatusBar.Text =
+        "Plan de Máximo Rendimiento activado."
+
 })
 
-$Window.FindName("OpenServices").Add_Click({
-    Start-Process services.msc
+
+$Window.FindName("DisableUltimate").Add_Click({
+
+    powercfg /setactive SCHEME_BALANCED
+
+    $StatusBar.Text =
+        "Plan Equilibrado activado."
+
 })
 
-$Window.FindName("OpenRegistry").Add_Click({
-    Start-Process regedit.exe
-})
 
-$Window.FindName("OpenTaskManager").Add_Click({
-    Start-Process taskmgr.exe
-})
-
-$Window.FindName("OpenMSConfig").Add_Click({
-    Start-Process msconfig.exe
-})
-
+# ============================================================
+# REPARACIONES
+# ============================================================
 
 $Window.FindName("RunSFC").Add_Click({
 
-    Start-Process powershell.exe `
+    Start-Process `
+        powershell.exe `
         -Verb RunAs `
-        -ArgumentList "-NoExit -Command sfc /scannow"
+        -ArgumentList "-NoExit -Command `"sfc /scannow`""
 
 })
 
 
 $Window.FindName("RunDISM").Add_Click({
 
-    Start-Process powershell.exe `
+    Start-Process `
+        powershell.exe `
         -Verb RunAs `
-        -ArgumentList "-NoExit -Command DISM /Online /Cleanup-Image /RestoreHealth"
+        -ArgumentList "-NoExit -Command `"DISM /Online /Cleanup-Image /RestoreHealth`""
 
 })
 
@@ -938,7 +1492,7 @@ $Window.FindName("FlushDNS").Add_Click({
     ipconfig /flushdns | Out-Null
 
     [System.Windows.MessageBox]::Show(
-        "DNS cache limpiada.",
+        "La caché DNS ha sido limpiada.",
         "PUSI OPTI"
     )
 
@@ -947,20 +1501,22 @@ $Window.FindName("FlushDNS").Add_Click({
 
 $Window.FindName("ResetNetwork").Add_Click({
 
-    $Result = [System.Windows.MessageBox]::Show(
-        "Esto restablecera Winsock y TCP/IP.`nPuede ser necesario reiniciar.`n`nContinuar?",
-        "PUSI OPTI",
-        "YesNo",
-        "Warning"
-    )
+    $Resultado =
+        [System.Windows.MessageBox]::Show(
+            "Se restablecerán Winsock y TCP/IP.`n`nSerá necesario reiniciar.`n`n¿Continuar?",
+            "PUSI OPTI",
+            "YesNo",
+            "Warning"
+        )
 
-    if ($Result -eq "Yes") {
+
+    if ($Resultado -eq "Yes") {
 
         netsh winsock reset | Out-Null
         netsh int ip reset | Out-Null
 
         [System.Windows.MessageBox]::Show(
-            "Network reset aplicado. Reinicia Windows.",
+            "Red restablecida.`nReinicia Windows.",
             "PUSI OPTI"
         )
 
@@ -969,53 +1525,198 @@ $Window.FindName("ResetNetwork").Add_Click({
 })
 
 
-$Window.FindName("OpenPowerOptions").Add_Click({
-    Start-Process powercfg.cpl
+# ============================================================
+# LIMPIEZA
+# ============================================================
+
+$Window.FindName("CleanTemp").Add_Click({
+
+    $StatusBar.Text =
+        "Limpiando temporales..."
+
+
+    Remove-Item `
+        "$env:TEMP\*" `
+        -Force `
+        -Recurse `
+        -ErrorAction SilentlyContinue
+
+
+    Remove-Item `
+        "$env:SystemRoot\Temp\*" `
+        -Force `
+        -Recurse `
+        -ErrorAction SilentlyContinue
+
+
+    $StatusBar.Text =
+        "Temporales eliminados."
+
 })
 
-$Window.FindName("OpenNetworkConnections").Add_Click({
-    Start-Process ncpa.cpl
+
+$Window.FindName("CleanShaderCache").Add_Click({
+
+    Remove-Item `
+        "$env:LOCALAPPDATA\D3DSCache\*" `
+        -Force `
+        -Recurse `
+        -ErrorAction SilentlyContinue
+
+
+    $StatusBar.Text =
+        "Shader Cache limpiada."
+
 })
 
-$Window.FindName("OpenSystemProperties").Add_Click({
-    Start-Process SystemPropertiesAdvanced.exe
-})
 
-$Window.FindName("OpenOptionalFeatures").Add_Click({
-    Start-Process optionalfeatures.exe
+$Window.FindName("EmptyRecycle").Add_Click({
+
+    Clear-RecycleBin `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+
+    $StatusBar.Text =
+        "Papelera vaciada."
+
 })
 
 
 # ============================================================
-# UPDATES
+# WINDOWS UPDATE
 # ============================================================
 
-$Window.FindName("OpenWindowsUpdate").Add_Click({
+$Window.FindName("PauseUpdates7").Add_Click({
 
-    Start-Process "ms-settings:windowsupdate"
+    $Fecha =
+        (Get-Date).AddDays(7).ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+
+    Set-RegString `
+        "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
+        "PauseUpdatesExpiryTime" `
+        $Fecha
+
+
+    $StatusBar.Text =
+        "Actualizaciones pausadas 7 días."
 
 })
 
 
-$Window.FindName("CheckWingetUpdates").Add_Click({
+$Window.FindName("PauseUpdates35").Add_Click({
 
-    Start-Process powershell.exe `
-        -ArgumentList "-NoExit -Command winget upgrade"
-
-})
+    $Fecha =
+        (Get-Date).AddDays(35).ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 
-$Window.FindName("UpgradeAllApps").Add_Click({
+    Set-RegString `
+        "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" `
+        "PauseUpdatesExpiryTime" `
+        $Fecha
 
-    Start-Process powershell.exe `
-        -Verb RunAs `
-        -ArgumentList "-NoExit -Command winget upgrade --all --accept-package-agreements --accept-source-agreements"
+
+    $StatusBar.Text =
+        "Actualizaciones pausadas 35 días."
 
 })
 
 
 # ============================================================
-# SHOW
+# DRIVER WINDOWS UPDATE
+# ============================================================
+
+$Window.FindName("DisableDriverWU").Add_Click({
+
+    Set-RegDWORD `
+        "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" `
+        "ExcludeWUDriversInQualityUpdate" `
+        1
+
+
+    $StatusBar.Text =
+        "Drivers bloqueados en Windows Update."
+
+})
+
+
+$Window.FindName("EnableDriverWU").Add_Click({
+
+    Remove-RegValue `
+        "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" `
+        "ExcludeWUDriversInQualityUpdate"
+
+
+    $StatusBar.Text =
+        "Drivers restaurados en Windows Update."
+
+})
+
+
+# ============================================================
+# DESACTIVAR WINDOWS UPDATE
+# ============================================================
+
+$Window.FindName("DisableWindowsUpdate").Add_Click({
+
+    $Respuesta =
+        [System.Windows.MessageBox]::Show(
+            "Esto deshabilitará el servicio principal de Windows Update.`n`nTambién puede impedir actualizaciones de seguridad.`n`n¿Continuar?",
+            "PUSI OPTI",
+            "YesNo",
+            "Warning"
+        )
+
+
+    if ($Respuesta -ne "Yes") {
+        return
+    }
+
+
+    Stop-Service `
+        wuauserv `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+
+    Set-Service `
+        wuauserv `
+        -StartupType Disabled `
+        -ErrorAction SilentlyContinue
+
+
+    $StatusBar.Text =
+        "Windows Update desactivado."
+
+})
+
+
+# ============================================================
+# REACTIVAR WINDOWS UPDATE
+# ============================================================
+
+$Window.FindName("EnableWindowsUpdate").Add_Click({
+
+    Set-Service `
+        wuauserv `
+        -StartupType Manual `
+        -ErrorAction SilentlyContinue
+
+
+    Start-Service `
+        wuauserv `
+        -ErrorAction SilentlyContinue
+
+
+    $StatusBar.Text =
+        "Windows Update reactivado."
+
+})
+
+
+# ============================================================
+# MOSTRAR VENTANA
 # ============================================================
 
 $Window.ShowDialog() | Out-Null
