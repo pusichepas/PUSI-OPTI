@@ -13,7 +13,7 @@ Add-Type -AssemblyName WindowsBase
 # CONFIGURACION
 # ============================================================
 
-$script:PusiVersion = "0.7.2"
+$script:PusiVersion = "1.0.0"
 
 $script:PowURL =
     "https://raw.githubusercontent.com/pusichepas/PUSI-OPTI/main/Bitsum-Highest-Performance.pow"
