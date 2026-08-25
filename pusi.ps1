@@ -4262,8 +4262,8 @@ function Update-PusiSummary {
     # RESTART
 
     if (
-        Test-PusiPendingRestart) -or
-        $script:NeedsRestart
+    (Test-PusiPendingRestart) -or
+    $script:NeedsRestart
     ) {
 
         (C "RestartIndicator").Text =
